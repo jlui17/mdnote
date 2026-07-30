@@ -8,6 +8,8 @@ export interface SelectionAnchor {
   lineRange: [number, number];
   anchorText: string;
   rect: DOMRect;
+  /** Survives the native selection collapsing when the popover takes the click. */
+  range: Range;
 }
 
 export function parseStamp(el: Element): [number, number] | null {
@@ -143,6 +145,7 @@ export function selectionAnchor(doc: Element): SelectionAnchor | null {
     lineRange: [Math.min(start[0], end[0]), Math.max(start[1], end[1])],
     anchorText,
     rect: range.getBoundingClientRect(),
+    range: range.cloneRange(),
   };
 }
 

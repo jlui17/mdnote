@@ -157,6 +157,10 @@ body {
   text-decoration: line-through;
 }
 
+::highlight(mdnote-pending) {
+  background-color: rgb(47 111 208 / 0.28);
+}
+
 /* --- sidebar ----------------------------------------------------------- */
 
 .sidebar {

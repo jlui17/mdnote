@@ -10,6 +10,12 @@ const highlights =
     ? (CSS as unknown as { highlights: Map<string, unknown> }).highlights
     : null;
 
+function setHighlight(name: string, ranges: Range[]): void {
+  if (!highlights || !HighlightCtor) return;
+  if (ranges.length) highlights.set(name, new HighlightCtor(...ranges));
+  else highlights.delete(name);
+}
+
 async function getDoc(): Promise<DocResponse | null> {
   const res = await fetch("/doc");
   return res.ok ? ((await res.json()) as DocResponse) : null;
@@ -64,6 +70,7 @@ function App() {
     const events = new EventSource("/events");
     events.addEventListener("update", () => {
       const y = window.scrollY;
+      setPending(null);
       void (async () => {
         setDoc(await getDoc());
         await refreshAnnotations();
@@ -86,10 +93,14 @@ function App() {
       rangesRef.current.push({ id: a.id, range });
       (a.status === "stale" ? stale : open).push(range);
     }
-    highlights.clear();
-    if (open.length) highlights.set("mdnote-open", new HighlightCtor(...open));
-    if (stale.length) highlights.set("mdnote-stale", new HighlightCtor(...stale));
+    setHighlight("mdnote-open", open);
+    setHighlight("mdnote-stale", stale);
   }, [annotations, doc?.html]);
+
+  useEffect(() => {
+    setHighlight("mdnote-pending", pending ? [pending.range] : []);
+    return () => setHighlight("mdnote-pending", []);
+  }, [pending]);
 
   useEffect(() => {
     const onMouseUp = (e: MouseEvent) => {
