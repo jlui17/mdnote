@@ -1,12 +1,30 @@
 :root {
-  --bg: #fdfdfc;
-  --fg: #1c1b19;
-  --muted: #6b6a66;
-  --line: #e2e0db;
-  --accent: #2f6fd0;
-  --panel: #f7f6f3;
+  color-scheme: light dark;
+  --bg: light-dark(#fdfdfc, #171614);
+  --fg: light-dark(#1c1b19, #e6e4df);
+  --muted: light-dark(#6b6a66, #98968f);
+  --line: light-dark(#e2e0db, #3a3936);
+  --accent: light-dark(#2f6fd0, #6ea8f7);
+  --panel: light-dark(#f7f6f3, #201f1d);
+  --surface: light-dark(#ffffff, #262523);
+  --shadow: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.55));
+  --hl-open: light-dark(#fff2a8, #5a4a14);
+  --hl-stale: light-dark(#ececec, #3a3936);
+  --hl-pending: color-mix(in srgb, var(--accent) 28%, transparent);
+  --badge-bg: light-dark(#e8e8e4, #3a3936);
+  --badge-fg: light-dark(#444444, #b5b3ac);
+  --badge-global-bg: light-dark(#efe3ff, #34254f);
+  --badge-global-fg: light-dark(#5a2c9c, #c9aef0);
   --radius: 6px;
   --sidebar: 340px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 * {
@@ -149,16 +167,16 @@ body {
 /* --- highlights -------------------------------------------------------- */
 
 ::highlight(mdnote-open) {
-  background-color: #fff2a8;
+  background-color: var(--hl-open);
 }
 
 ::highlight(mdnote-stale) {
-  background-color: #ececec;
+  background-color: var(--hl-stale);
   text-decoration: line-through;
 }
 
 ::highlight(mdnote-pending) {
-  background-color: rgb(47 111 208 / 0.28);
+  background-color: var(--hl-pending);
 }
 
 /* --- sidebar ----------------------------------------------------------- */
@@ -184,18 +202,9 @@ body {
   margin-bottom: 0.75rem;
 }
 
-.doc-path {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 button {
   font: inherit;
-  background: #fff;
+  background: var(--surface);
   color: var(--fg);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -215,17 +224,16 @@ textarea {
   border-radius: var(--radius);
   padding: 0.45em 0.6em;
   resize: vertical;
-  background: #fff;
+  background: var(--surface);
   color: var(--fg);
 }
 
 .copy-prompt {
-  width: 100%;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
 }
 
 .copy-prompt kbd {
@@ -262,7 +270,7 @@ textarea {
 }
 
 .entry {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 0.6rem 0.7rem;
@@ -271,7 +279,17 @@ textarea {
 
 .entry.focused {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgb(47 111 208 / 0.15);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.entry.flash {
+  animation: entry-flash 1.2s ease-out;
+}
+
+@keyframes entry-flash {
+  from {
+    background-color: var(--hl-open);
+  }
 }
 
 .entry.stale {
@@ -296,17 +314,17 @@ textarea {
   font-weight: 600;
   border-radius: 999px;
   padding: 0.1em 0.55em;
-  background: #e8e8e4;
-  color: #444;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
 }
 
 .badge-global {
-  background: #efe3ff;
-  color: #5a2c9c;
+  background: var(--badge-global-bg);
+  color: var(--badge-global-fg);
 }
 .badge-stale {
-  background: #e8e8e4;
-  color: #6b6a66;
+  background: var(--badge-bg);
+  color: var(--muted);
 }
 
 .entry .del,
@@ -373,10 +391,10 @@ textarea {
   position: fixed;
   z-index: 10;
   width: 280px;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.12);
+  box-shadow: 0 6px 20px var(--shadow);
   padding: 0.6rem;
 }
 

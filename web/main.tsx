@@ -78,6 +78,39 @@ async function copyText(text: string): Promise<void> {
 
 const isMac = /Mac|iP/.test(navigator.platform);
 
+type ThemeMode = "system" | "light" | "dark";
+const THEME_KEY = "mdnote-theme";
+const THEME_NEXT: Record<ThemeMode, ThemeMode> = { system: "light", light: "dark", dark: "system" };
+const THEME_ICON: Record<ThemeMode, string> = { system: "◐", light: "☀", dark: "☾" };
+
+function ThemeToggle() {
+  const [mode, setMode] = useState<ThemeMode>(() => {
+    const saved = localStorage.getItem(THEME_KEY);
+    return saved === "light" || saved === "dark" ? saved : "system";
+  });
+
+  useEffect(() => {
+    if (mode === "system") {
+      delete document.documentElement.dataset.theme;
+      localStorage.removeItem(THEME_KEY);
+    } else {
+      document.documentElement.dataset.theme = mode;
+      localStorage.setItem(THEME_KEY, mode);
+    }
+  }, [mode]);
+
+  return (
+    <button
+      type="button"
+      class="theme-toggle"
+      title={`Theme: ${mode}`}
+      onClick={() => setMode(THEME_NEXT[mode])}
+    >
+      {THEME_ICON[mode]}
+    </button>
+  );
+}
+
 function snippet(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > 160 ? flat.slice(0, 160) + "…" : flat;
@@ -222,7 +255,6 @@ function App() {
         dangerouslySetInnerHTML={{ __html: doc?.html ?? "" }}
       />
       <Sidebar
-        path={doc?.path ?? ""}
         annotations={annotations}
         focus={focus}
         onFocus={scrollTo}
@@ -246,7 +278,6 @@ function App() {
 }
 
 function Sidebar(props: {
-  path: string;
   annotations: Annotation[];
   focus: { id: string; tick: number } | null;
   onFocus: (id: string) => void;
@@ -268,10 +299,10 @@ function Sidebar(props: {
     );
     if (!el) return;
     el.scrollIntoView({ block: "center", behavior: "smooth" });
-    el.animate([{ backgroundColor: "#fff2a8" }, { backgroundColor: "#ffffff" }], {
-      duration: 1200,
-      easing: "ease-out",
-    });
+    el.classList.remove("flash");
+    void el.offsetWidth;
+    el.classList.add("flash");
+    el.addEventListener("animationend", () => el.classList.remove("flash"), { once: true });
   }, [props.focus]);
 
   const startEditing = (a: Annotation) => {
@@ -284,60 +315,57 @@ function Sidebar(props: {
     setEditingId(null);
   };
 
-  const name = props.path.split("/").pop() ?? "mdnote";
-
   return (
     <aside class="sidebar">
       <header class="sidebar-head">
-        <h2 class="doc-path" title={props.path}>
-          {name}
-        </h2>
-        <button type="button" onClick={() => setAdding(true)}>
-          Add general note
+        <button type="button" class="copy-prompt" onClick={props.onCopyPrompt}>
+          Copy review prompt
+          <kbd>{isMac ? "⌘⇧C" : "Ctrl+Shift+C"}</kbd>
         </button>
+        <ThemeToggle />
       </header>
 
-      <button type="button" class="copy-prompt" onClick={props.onCopyPrompt}>
-        Copy review prompt
-        <kbd>{isMac ? "⌘⇧C" : "Ctrl+Shift+C"}</kbd>
-      </button>
-
-      {adding && (
-        <form
-          class="global-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!note.trim()) return;
-            props.onGlobal(note.trim());
-            setNote("");
-            setAdding(false);
-          }}
-        >
-          <textarea
-            rows={3}
-            placeholder="Note about the whole document"
-            value={note}
-            autofocus
-            onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
-                (e.target as HTMLTextAreaElement).form?.requestSubmit();
+      <div class="global-form">
+        {adding ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!note.trim()) return;
+              props.onGlobal(note.trim());
+              setNote("");
+              setAdding(false);
             }}
-          />
-          <div class="row">
-            <button type="submit">Add</button>
-            <button
-              type="button"
-              onClick={() => {
-                setNote("");
-                setAdding(false);
+          >
+            <textarea
+              rows={3}
+              placeholder="Note about the whole document"
+              value={note}
+              autofocus
+              onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
+                  (e.target as HTMLTextAreaElement).form?.requestSubmit();
               }}
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
+            />
+            <div class="row">
+              <button type="submit">Add</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNote("");
+                  setAdding(false);
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <button type="button" onClick={() => setAdding(true)}>
+            Add general note
+          </button>
+        )}
+      </div>
 
       <ul class="annotation-list" ref={listRef}>
         {props.annotations.length === 0 && (

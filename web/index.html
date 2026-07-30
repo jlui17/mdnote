@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>mdnote</title>
+    <script>
+      const theme = localStorage.getItem("mdnote-theme");
+      if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+    </script>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
