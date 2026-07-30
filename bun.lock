@@ -6,6 +6,7 @@
       "name": "md",
       "dependencies": {
         "markdown-it": "^15.0.0",
+        "preact": "^10.29.7",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -39,6 +40,8 @@
     "markdown-it": ["markdown-it@15.0.0", "", { "dependencies": { "argparse": "^3.0.0", "entities": "^8.0.0", "linkify-it": "^6.0.0", "mdurl": "^2.1.0", "punycode.js": "^2.3.1", "uc.micro": "^3.0.0" }, "bin": { "markdown-it": "bin/markdown-it.mjs" } }, "sha512-Lf8ajvVNdRpzSNB4VegxNy7gjs8gU35l4b4+ET49LrQC5PKYwLZ72u60LeJ9gv3qiaesuYjJWCyVeQmv/QWKQw=="],
 
     "mdurl": ["mdurl@2.1.0", "", {}, "sha512-1+HBaOx0zi/dQWht8rNv9MYf9qqpqL/kxI0hXImU6Y547zM6Sni8BQibt7ifgMcYtQg41ao3Ivd6cnSM86inpg=="],
+
+    "preact": ["preact@10.29.7", "", { "peerDependencies": { "preact-render-to-string": ">=5" }, "optionalPeers": ["preact-render-to-string"] }, "sha512-DCHYrK/B10yUD3ZjLfhZ3WIE/9Vf9VFUODcRE2dRomTYDpJk6z6L9wecSfhfE6M9ZTHUdyQkoC46arIDhEV84Q=="],
 
     "punycode.js": ["punycode.js@2.3.1", "", {}, "sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA=="],
 
