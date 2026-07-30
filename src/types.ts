@@ -1,13 +1,10 @@
-export type AnnotationType = "comment" | "replace" | "delete" | "global";
-
 export type AnnotationStatus = "open" | "stale";
 
 export interface Annotation {
   id: string;
-  type: AnnotationType;
-  /** 1-based inclusive source lines. Null for type "global". */
+  /** 1-based inclusive source lines. Null for a doc-wide note. */
   lineRange: [number, number] | null;
-  /** Exact selected source-adjacent text; re-anchoring matches against this. Null for "global". */
+  /** Exact selected source-adjacent text; re-anchoring matches against this. Null for a doc-wide note. */
   anchorText: string | null;
   note: string;
   createdAt: string;
@@ -21,7 +18,6 @@ export interface Sidecar {
 
 /** Body of POST /annotations. Server assigns id, createdAt, status. */
 export interface NewAnnotation {
-  type: AnnotationType;
   lineRange: [number, number] | null;
   anchorText: string | null;
   note: string;

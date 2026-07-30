@@ -219,6 +219,25 @@ textarea {
   color: var(--fg);
 }
 
+.copy-prompt {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.copy-prompt kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.05em 0.4em;
+}
+
 .row {
   display: flex;
   gap: 0.4rem;
@@ -281,18 +300,6 @@ textarea {
   color: #444;
 }
 
-.badge-comment {
-  background: #dceaff;
-  color: #1c4f9c;
-}
-.badge-replace {
-  background: #e2f5df;
-  color: #2c6b28;
-}
-.badge-delete {
-  background: #ffe0e0;
-  color: #9c2a2a;
-}
 .badge-global {
   background: #efe3ff;
   color: #5a2c9c;
@@ -329,6 +336,21 @@ textarea {
   display: block;
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+/* --- toast ------------------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 2rem;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: var(--fg);
+  color: var(--bg);
+  border-radius: var(--radius);
+  padding: 0.4em 0.9em;
+  font-size: 0.85rem;
 }
 
 /* --- popover ----------------------------------------------------------- */

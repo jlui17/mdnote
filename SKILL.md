@@ -25,9 +25,8 @@ mdnote comments <file.md> --json
 
 Returns `{file, annotations}`. Each annotation:
 
-- `type`: `comment` | `replace` | `delete` | `global`
-- `lineRange`: `[start, end]`, 1-based inclusive source lines (`null` for `global`)
-- `anchorText`: exact selected text (`null` for `global`)
+- `lineRange`: `[start, end]`, 1-based inclusive source lines (`null` for a doc-wide note)
+- `anchorText`: exact selected text (`null` for a doc-wide note)
 - `note`: the instruction
 - `status`: `open` | `stale`
 
@@ -35,10 +34,7 @@ Only act on `status: "open"`.
 
 ## 3. Apply each annotation
 
-- **comment**: revise the anchored span per `note`.
-- **replace**: rewrite the anchored span to match what `note` describes.
-- **delete**: remove the anchored span entirely.
-- **global**: doc-wide instruction, not anchored to a span — apply across the whole file.
+The `note` is a free-form instruction about the anchored span: "make this punchier" means revise it, "remove" means delete it, and so on. When `anchorText` is `null`, the note is doc-wide — apply it across the whole file.
 
 Use `lineRange` to jump to the spot; confirm you have the right span by matching `anchorText` (lines may have shifted from earlier edits in this same pass — re-check rather than trusting stale line numbers).
 

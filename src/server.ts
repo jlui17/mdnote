@@ -90,15 +90,14 @@ export async function startServer(opts: { file: string; host: string; port: numb
         if (req.method === "POST") {
           const body = (await req.json()) as NewAnnotation;
           let lineRange = body.lineRange;
-          if (body.type !== "global" && body.anchorText) {
+          if (body.anchorText) {
             const found = locate(await readSource(), body.anchorText, lineRange ?? undefined);
             if (found) lineRange = found;
           }
           const created: Annotation = {
             id: crypto.randomUUID(),
-            type: body.type,
-            lineRange: body.type === "global" ? null : lineRange,
-            anchorText: body.type === "global" ? null : body.anchorText,
+            lineRange: body.anchorText ? lineRange : null,
+            anchorText: body.anchorText,
             note: body.note,
             createdAt: new Date().toISOString(),
             status: "open",

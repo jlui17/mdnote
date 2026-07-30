@@ -1,6 +1,6 @@
 import { render } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { Annotation, AnnotationType, DocResponse, NewAnnotation } from "../src/types.ts";
+import type { Annotation, DocResponse, NewAnnotation } from "../src/types.ts";
 import { caretAt, findRange, selectionAnchor, type SelectionAnchor } from "./anchor-dom.ts";
 
 const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown })
@@ -39,6 +39,37 @@ async function deleteAnnotation(id: string): Promise<void> {
   await fetch(`/annotations/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
+function agentPrompt(path: string): string {
+  return `I left annotations on ${path} with mdnote. Read them:
+
+  mdnote comments "${path}" --json
+
+Apply each annotation with status "open": the note is a free-form instruction about the anchored span ("make this punchier", "remove this"); when anchorText is null it applies to the whole document. lineRange is 1-based inclusive source lines; confirm the spot against anchorText before editing. After addressing an annotation, clear it:
+
+  mdnote clear "${path}" --id <id>
+
+Repeat until no open annotations remain. Leave "stale" annotations alone and flag them to me.`;
+}
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {}
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  ta.remove();
+}
+
+const isMac = /Mac|iP/.test(navigator.platform);
+
 function snippet(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > 160 ? flat.slice(0, 160) + "…" : flat;
@@ -54,6 +85,8 @@ function App() {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [pending, setPending] = useState<SelectionAnchor | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | null>(null);
 
   const docRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -87,7 +120,7 @@ function App() {
     const open: Range[] = [];
     const stale: Range[] = [];
     for (const a of annotations) {
-      if (a.type === "global" || !a.anchorText) continue;
+      if (!a.anchorText) continue;
       const range = findRange(container, a.anchorText, a.lineRange);
       if (!range) continue;
       rangesRef.current.push({ id: a.id, range });
@@ -101,6 +134,27 @@ function App() {
     setHighlight("mdnote-pending", pending ? [pending.range] : []);
     return () => setHighlight("mdnote-pending", []);
   }, [pending]);
+
+  const copyPrompt = () => {
+    const path = doc?.path;
+    if (!path) return;
+    void copyText(agentPrompt(path)).then(() => {
+      setCopied(true);
+      if (copiedTimer.current !== null) clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  useEffect(() => {
+    if (!doc?.path) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.key.toLowerCase() !== "c") return;
+      e.preventDefault();
+      copyPrompt();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [doc?.path]);
 
   useEffect(() => {
     const onMouseUp = (e: MouseEvent) => {
@@ -160,14 +214,16 @@ function App() {
         focusedId={focusedId}
         onFocus={scrollTo}
         onDelete={remove}
-        onGlobal={(note) => submit({ type: "global", lineRange: null, anchorText: null, note })}
+        onGlobal={(note) => submit({ lineRange: null, anchorText: null, note })}
+        onCopyPrompt={copyPrompt}
       />
+      {copied && <div class="toast">Copied agent prompt</div>}
       {pending && (
         <Popover
           popoverRef={popoverRef}
           rect={pending.rect}
-          onPick={(type, note) =>
-            submit({ type, lineRange: pending.lineRange, anchorText: pending.anchorText, note })
+          onPick={(note) =>
+            submit({ lineRange: pending.lineRange, anchorText: pending.anchorText, note })
           }
         />
       )}
@@ -182,6 +238,7 @@ function Sidebar(props: {
   onFocus: (id: string) => void;
   onDelete: (id: string) => void;
   onGlobal: (note: string) => void;
+  onCopyPrompt: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [note, setNote] = useState("");
@@ -207,6 +264,11 @@ function Sidebar(props: {
         </button>
       </header>
 
+      <button type="button" class="copy-prompt" onClick={props.onCopyPrompt}>
+        Copy review prompt
+        <kbd>{isMac ? "⌘⇧C" : "Ctrl+Shift+C"}</kbd>
+      </button>
+
       {adding && (
         <form
           class="global-form"
@@ -224,6 +286,10 @@ function Sidebar(props: {
             value={note}
             autofocus
             onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
+                (e.target as HTMLTextAreaElement).form?.requestSubmit();
+            }}
           />
           <div class="row">
             <button type="submit">Add</button>
@@ -252,7 +318,7 @@ function Sidebar(props: {
             onClick={() => props.onFocus(a.id)}
           >
             <div class="entry-head">
-              <span class={`badge badge-${a.type}`}>{a.type}</span>
+              {!a.anchorText && <span class="badge badge-global">global</span>}
               {a.status === "stale" && <span class="badge badge-stale">stale</span>}
               <button
                 type="button"
@@ -279,12 +345,10 @@ function Sidebar(props: {
   );
 }
 
-const TYPES: AnnotationType[] = ["comment", "replace", "delete"];
-
 function Popover(props: {
   popoverRef: { current: HTMLDivElement | null };
   rect: DOMRect;
-  onPick: (type: AnnotationType, note: string) => void;
+  onPick: (note: string) => void;
 }) {
   const [note, setNote] = useState("");
   const [pos, setPos] = useState({ left: props.rect.left, top: props.rect.bottom + 8 });
@@ -306,16 +370,18 @@ function Popover(props: {
     <div class="popover" ref={props.popoverRef} style={{ left: `${pos.left}px`, top: `${pos.top}px` }}>
       <textarea
         rows={2}
-        placeholder="Note…"
+        placeholder={`Note… (${isMac ? "⌘↩" : "Ctrl+↩"} to add)`}
         value={note}
         onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && note.trim())
+            props.onPick(note.trim());
+        }}
       />
       <div class="row">
-        {TYPES.map((type) => (
-          <button key={type} type="button" onClick={() => props.onPick(type, note.trim())}>
-            {type[0]!.toUpperCase() + type.slice(1)}
-          </button>
-        ))}
+        <button type="button" disabled={!note.trim()} onClick={() => props.onPick(note.trim())}>
+          Add note
+        </button>
       </div>
     </div>
   );

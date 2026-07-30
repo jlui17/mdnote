@@ -100,7 +100,7 @@ export function locate(
 
 export function reanchor(source: string, annotations: Annotation[]): Annotation[] {
   return annotations.map((a) => {
-    if (a.type === "global" || a.anchorText === null) return a;
+    if (a.anchorText === null) return a;
     const found = locate(source, a.anchorText, a.lineRange ?? undefined);
     return found
       ? { ...a, lineRange: found, status: "open" as const }

@@ -24,7 +24,6 @@ const doc = [
 function ann(over: Partial<Annotation>): Annotation {
   return {
     id: "a",
-    type: "comment",
     lineRange: [1, 1],
     anchorText: "x",
     note: "n",
@@ -139,7 +138,7 @@ describe("reanchor", () => {
   });
 
   test("global annotations pass through untouched", () => {
-    const global = ann({ type: "global", lineRange: null, anchorText: null });
+    const global = ann({ lineRange: null, anchorText: null });
     const out = reanchor(doc, [global]);
     expect(out[0]).toEqual(global);
   });

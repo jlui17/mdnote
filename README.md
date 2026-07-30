@@ -6,7 +6,7 @@ Iterating on Markdown (plans, docs, prompts) with a coding agent usually means t
 
 ## How it works
 
-The server renders your Markdown so that every element carries its source line numbers, which lets a browser text selection map back to exact lines in the file. Each annotation you leave (a note, a replacement instruction, or a deletion) persists to a sidecar JSON next to the file, so nothing lives only in the browser tab. The agent never touches the browser: it pulls annotations through the CLI, edits the file, and the page live-reloads with the new content. Annotations follow the text they anchor to as lines shift; one whose text no longer exists is marked stale rather than silently dropped.
+The server renders your Markdown so that every element carries its source line numbers, which lets a browser text selection map back to exact lines in the file. Each note you leave ("make this punchier", "remove this") persists to a sidecar JSON next to the file, so nothing lives only in the browser tab. The agent never touches the browser: it pulls annotations through the CLI, edits the file, and the page live-reloads with the new content. Annotations follow the text they anchor to as lines shift; one whose text no longer exists is marked stale rather than silently dropped.
 
 ## Quick start
 
@@ -17,7 +17,9 @@ bun link          # puts `mdnote` on your PATH (needs ~/.bun/bin in PATH)
 mdnote review notes.md
 ```
 
-The browser opens on the rendered doc. Highlight a span, pick `comment` / `replace` / `delete` in the popover, type a note (or click "Add general note" for a doc-wide instruction not tied to a span).
+The browser opens on the rendered doc. Highlight a span and type a note in the popover — "make this punchier", "remove this paragraph" — and hit ⌘↩ (Ctrl+Enter elsewhere) or the Add button (or click "Add general note" for a doc-wide instruction not tied to a span).
+
+When you're done annotating, click **Copy review prompt** in the sidebar (or hit ⌘⇧C / Ctrl+Shift+C) to copy a ready-made prompt for your agent: paste it into the session and it walks the agent through reading, applying, and clearing your notes.
 
 Then an agent (or you, in another terminal) pulls what you left:
 
@@ -28,7 +30,6 @@ $ mdnote comments notes.md --json
   "annotations": [
     {
       "id": "3f1e2b7a-...",
-      "type": "replace",
       "lineRange": [12, 14],
       "anchorText": "the quick brown fox",
       "note": "make this punchier",
@@ -75,14 +76,12 @@ Open `http://<vm-ip>:7777` from anywhere that can reach the host. Nothing in the
 Annotations persist to `<file>.mdnote.json` next to the reviewed file.
 
 ```ts
-type AnnotationType = "comment" | "replace" | "delete" | "global";
 type AnnotationStatus = "open" | "stale";
 
 interface Annotation {
   id: string;
-  type: AnnotationType;
-  lineRange: [number, number] | null; // 1-based inclusive source lines; null for "global"
-  anchorText: string | null;          // exact selected text; null for "global"
+  lineRange: [number, number] | null; // 1-based inclusive source lines; null for a doc-wide note
+  anchorText: string | null;          // exact selected text; null for a doc-wide note
   note: string;
   createdAt: string;
   status: AnnotationStatus;

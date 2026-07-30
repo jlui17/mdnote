@@ -127,8 +127,8 @@ async function cmdComments(args: string[]) {
     return;
   }
   for (const a of annotations) {
-    const range = a.lineRange ? `${a.lineRange[0]}-${a.lineRange[1]}` : "-";
-    console.log(`[${a.status}] ${a.type} (${range}): ${a.note}`);
+    const range = a.lineRange ? `lines ${a.lineRange[0]}-${a.lineRange[1]}` : "whole doc";
+    console.log(`[${a.status}] (${range}): ${a.note}`);
   }
 }
 

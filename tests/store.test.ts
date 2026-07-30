@@ -33,7 +33,6 @@ test("write/read round-trip", () => {
     annotations: [
       {
         id: "abc",
-        type: "comment",
         lineRange: [1, 2],
         anchorText: "hello",
         note: "make it punchier",
