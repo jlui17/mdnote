@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { readSidecar, writeSidecar } from "./store.ts";
 import type { Annotation } from "./types.ts";
