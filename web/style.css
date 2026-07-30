@@ -309,14 +309,19 @@ textarea {
   color: #6b6a66;
 }
 
-.entry .del {
-  margin-left: auto;
+.entry .del,
+.entry .edit {
   border: 0;
   background: none;
   padding: 0 0.2em;
   font-size: 1.1rem;
   line-height: 1;
   color: var(--muted);
+}
+
+.entry .edit {
+  margin-left: auto;
+  font-size: 0.95rem;
 }
 
 .anchor {
@@ -330,6 +335,15 @@ textarea {
 .note {
   margin: 0 0 0.35rem;
   white-space: pre-wrap;
+}
+
+.edit-form {
+  margin-bottom: 0.35rem;
+  cursor: default;
+}
+
+.edit-form textarea {
+  font-size: 0.9rem;
 }
 
 .meta {

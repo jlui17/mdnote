@@ -3,7 +3,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { render } from "./render.ts";
 import { locate, reanchor } from "./anchor.ts";
 import { readSidecar, sidecarPath, writeSidecar } from "./store.ts";
-import type { Annotation, DocResponse, NewAnnotation } from "./types.ts";
+import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation } from "./types.ts";
 
 const WEB_DIR = join(import.meta.dir, "..", "web");
 
@@ -114,11 +114,24 @@ export async function startServer(opts: { file: string; host: string; port: numb
         }
       }
 
-      if (req.method === "DELETE" && path.startsWith("/annotations/")) {
+      if (path.startsWith("/annotations/")) {
         const id = decodeURIComponent(path.slice("/annotations/".length));
-        const sidecar = readSidecar(file);
-        persist(sidecar.annotations.filter((a) => a.id !== id));
-        return new Response(null, { status: 204 });
+
+        if (req.method === "PATCH") {
+          const body = (await req.json()) as AnnotationPatch;
+          const sidecar = readSidecar(file);
+          const target = sidecar.annotations.find((a) => a.id === id);
+          if (!target) return json({ error: "annotation not found" }, 404);
+          target.note = body.note;
+          persist(sidecar.annotations);
+          return json(target);
+        }
+
+        if (req.method === "DELETE") {
+          const sidecar = readSidecar(file);
+          persist(sidecar.annotations.filter((a) => a.id !== id));
+          return new Response(null, { status: 204 });
+        }
       }
 
       if (req.method === "GET" && path === "/events") {

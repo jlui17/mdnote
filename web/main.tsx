@@ -1,6 +1,6 @@
 import { render } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { Annotation, DocResponse, NewAnnotation } from "../src/types.ts";
+import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation } from "../src/types.ts";
 import { caretAt, findRange, selectionAnchor, type SelectionAnchor } from "./anchor-dom.ts";
 
 const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown })
@@ -37,6 +37,14 @@ async function postAnnotation(body: NewAnnotation): Promise<void> {
 
 async function deleteAnnotation(id: string): Promise<void> {
   await fetch(`/annotations/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+async function patchAnnotation(id: string, body: AnnotationPatch): Promise<void> {
+  await fetch(`/annotations/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 function agentPrompt(path: string): string {
@@ -84,7 +92,7 @@ function App() {
   const [doc, setDoc] = useState<DocResponse | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [pending, setPending] = useState<SelectionAnchor | null>(null);
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [focus, setFocus] = useState<{ id: string; tick: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number | null>(null);
 
@@ -186,15 +194,20 @@ function App() {
 
   const remove = (id: string) => void deleteAnnotation(id).then(refreshAnnotations);
 
+  const edit = (id: string, note: string) =>
+    void patchAnnotation(id, { note }).then(refreshAnnotations);
+
+  const focusAnnotation = (id: string) => setFocus((f) => ({ id, tick: (f?.tick ?? 0) + 1 }));
+
   const onDocClick = (e: MouseEvent) => {
     const caret = caretAt(e.clientX, e.clientY);
     if (!caret) return;
     const hit = rangesRef.current.find((r) => r.range.isPointInRange(caret.node, caret.offset));
-    if (hit) setFocusedId(hit.id);
+    if (hit) focusAnnotation(hit.id);
   };
 
   const scrollTo = (id: string) => {
-    setFocusedId(id);
+    focusAnnotation(id);
     const rect = rangesRef.current.find((r) => r.id === id)?.range.getBoundingClientRect();
     if (rect) window.scrollBy({ top: rect.top - window.innerHeight / 2, behavior: "smooth" });
   };
@@ -211,9 +224,10 @@ function App() {
       <Sidebar
         path={doc?.path ?? ""}
         annotations={annotations}
-        focusedId={focusedId}
+        focus={focus}
         onFocus={scrollTo}
         onDelete={remove}
+        onEdit={edit}
         onGlobal={(note) => submit({ lineRange: null, anchorText: null, note })}
         onCopyPrompt={copyPrompt}
       />
@@ -234,22 +248,41 @@ function App() {
 function Sidebar(props: {
   path: string;
   annotations: Annotation[];
-  focusedId: string | null;
+  focus: { id: string; tick: number } | null;
   onFocus: (id: string) => void;
   onDelete: (id: string) => void;
+  onEdit: (id: string, note: string) => void;
   onGlobal: (note: string) => void;
   onCopyPrompt: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [note, setNote] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
-    if (!props.focusedId) return;
-    listRef.current
-      ?.querySelector(`[data-annotation-id="${CSS.escape(props.focusedId)}"]`)
-      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [props.focusedId]);
+    if (!props.focus) return;
+    const el = listRef.current?.querySelector<HTMLElement>(
+      `[data-annotation-id="${CSS.escape(props.focus.id)}"]`,
+    );
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.animate([{ backgroundColor: "#fff2a8" }, { backgroundColor: "#ffffff" }], {
+      duration: 1200,
+      easing: "ease-out",
+    });
+  }, [props.focus]);
+
+  const startEditing = (a: Annotation) => {
+    setEditingId(a.id);
+    setDraft(a.note);
+  };
+
+  const saveEdit = () => {
+    if (editingId && draft.trim()) props.onEdit(editingId, draft.trim());
+    setEditingId(null);
+  };
 
   const name = props.path.split("/").pop() ?? "mdnote";
 
@@ -313,13 +346,24 @@ function Sidebar(props: {
         {props.annotations.map((a) => (
           <li
             key={a.id}
-            class={`entry ${a.status}${props.focusedId === a.id ? " focused" : ""}`}
+            class={`entry ${a.status}${props.focus?.id === a.id ? " focused" : ""}`}
             data-annotation-id={a.id}
             onClick={() => props.onFocus(a.id)}
           >
             <div class="entry-head">
               {!a.anchorText && <span class="badge badge-global">global</span>}
               {a.status === "stale" && <span class="badge badge-stale">stale</span>}
+              <button
+                type="button"
+                class="edit"
+                title="Edit note"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startEditing(a);
+                }}
+              >
+                ✎
+              </button>
               <button
                 type="button"
                 class="del"
@@ -333,7 +377,42 @@ function Sidebar(props: {
               </button>
             </div>
             {a.anchorText && <blockquote class="anchor">{snippet(a.anchorText)}</blockquote>}
-            {a.note && <p class="note">{a.note}</p>}
+            {editingId === a.id ? (
+              <form
+                class="edit-form"
+                onClick={(e) => e.stopPropagation()}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  saveEdit();
+                }}
+              >
+                <textarea
+                  rows={2}
+                  value={draft}
+                  autofocus
+                  onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
+                      (e.target as HTMLTextAreaElement).form?.requestSubmit();
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                />
+                <div class="row">
+                  <button type="submit" disabled={!draft.trim()}>
+                    Save
+                  </button>
+                  <button type="button" onClick={() => setEditingId(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              a.note && (
+                <p class="note" onDblClick={() => startEditing(a)}>
+                  {a.note}
+                </p>
+              )
+            )}
             <time class="meta">
               {a.lineRange ? `lines ${a.lineRange[0]}–${a.lineRange[1]} · ` : ""}
               {formatTime(a.createdAt)}

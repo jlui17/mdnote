@@ -16,6 +16,11 @@ export interface Sidecar {
   annotations: Annotation[];
 }
 
+/** Body of PATCH /annotations/:id. */
+export interface AnnotationPatch {
+  note: string;
+}
+
 /** Body of POST /annotations. Server assigns id, createdAt, status. */
 export interface NewAnnotation {
   lineRange: [number, number] | null;
