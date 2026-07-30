@@ -1,0 +1,23 @@
+{
+  "name": "mdnote",
+  "version": "0.1.0",
+  "module": "src/cli.ts",
+  "type": "module",
+  "bin": {
+    "mdnote": "src/cli.ts"
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/markdown-it": "^14.1.2",
+    "bun-types": "^1.3.14"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "markdown-it": "^15.0.0"
+  }
+}
