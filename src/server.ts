@@ -10,6 +10,8 @@ const WEB_DIR = join(import.meta.dir, "..", "web");
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
+const IDLE_TIMEOUT_MS = 5 * 60_000;
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
@@ -44,7 +46,13 @@ interface DirWatch {
   names: Map<string, string>;
 }
 
-export async function startServer(opts: { file: string; host: string; port: number }): Promise<{
+export async function startServer(opts: {
+  file: string;
+  host: string;
+  port: number;
+  /** Called once the server has had no SSE client on any file for the idle window. */
+  onIdle?: () => void;
+}): Promise<{
   url: string;
   port: number;
   watchedDirs(): string[];
@@ -130,7 +138,21 @@ export async function startServer(opts: { file: string; host: string; port: numb
     entry.names.set(basename(sidecarPath(file)), file);
   }
 
+  const { onIdle } = opts;
+  const idleMs = Number(process.env.MDNOTE_IDLE_TIMEOUT_MS) || IDLE_TIMEOUT_MS;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function resetIdleClock() {
+    if (!onIdle) return;
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
+    let connected = 0;
+    for (const state of files.values()) connected += state.clients.size;
+    if (connected === 0) idleTimer = setTimeout(onIdle, idleMs);
+  }
+
   register(initial);
+  resetIdleClock();
 
   const server = Bun.serve({
     hostname: opts.host,
@@ -275,10 +297,12 @@ export async function startServer(opts: { file: string; host: string; port: numb
         start(controller) {
           self = controller;
           state.clients.add(controller);
+          resetIdleClock();
           controller.enqueue(encoder.encode(": connected\n\n"));
         },
         cancel() {
           state.clients.delete(self);
+          resetIdleClock();
         },
       });
       return new Response(stream, {
@@ -299,6 +323,7 @@ export async function startServer(opts: { file: string; host: string; port: numb
     port,
     watchedDirs: () => [...dirWatchers.keys()],
     stop() {
+      if (idleTimer) clearTimeout(idleTimer);
       for (const entry of dirWatchers.values()) entry.watcher.close();
       dirWatchers.clear();
       for (const state of files.values()) if (state.timer) clearTimeout(state.timer);

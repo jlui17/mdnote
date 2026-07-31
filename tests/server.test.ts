@@ -169,3 +169,41 @@ describe("watchers and SSE scoping", () => {
     expect(server.watchedDirs()).toEqual([dir]);
   });
 });
+
+describe("idle shutdown", () => {
+  test("the clock runs from boot, a connected client cancels it, disconnecting restarts it", async () => {
+    const prev = process.env.MDNOTE_IDLE_TIMEOUT_MS;
+    process.env.MDNOTE_IDLE_TIMEOUT_MS = "150";
+    let idle = 0;
+    const s = await startServer({
+      file,
+      host: "127.0.0.1",
+      port: 0,
+      onIdle: () => {
+        idle++;
+      },
+    });
+    try {
+      await Bun.sleep(300);
+      expect(idle).toBe(1);
+
+      const ac = new AbortController();
+      const res = await fetch(
+        `http://127.0.0.1:${s.port}/api/events?file=${encodeURIComponent(file)}`,
+        { signal: ac.signal },
+      );
+      const reader = res.body!.getReader();
+      await reader.read();
+      await Bun.sleep(300);
+      expect(idle).toBe(1);
+
+      ac.abort();
+      await Bun.sleep(600);
+      expect(idle).toBe(2);
+    } finally {
+      if (prev === undefined) delete process.env.MDNOTE_IDLE_TIMEOUT_MS;
+      else process.env.MDNOTE_IDLE_TIMEOUT_MS = prev;
+      await s.stop();
+    }
+  });
+});
