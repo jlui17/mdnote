@@ -26,6 +26,7 @@
   --code-type: light-dark(#df8e1d, #d9b06b);
   --code-variable: light-dark(#d20f39, #cf838f);
   --code-meta: light-dark(#179299, #5fb3a1);
+  --scrim: light-dark(rgb(0 0 0 / 0.3), rgb(0 0 0 / 0.6));
   --radius: 6px;
   --sidebar: 340px;
 }
@@ -594,6 +595,88 @@ button kbd {
   color: var(--bg);
   border-radius: var(--radius);
   padding: 0.4em 0.9em;
+  font-size: 0.85rem;
+}
+
+/* --- help dialog ------------------------------------------------------- */
+
+.help-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: var(--scrim);
+}
+
+.help-panel {
+  width: min(620px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px var(--shadow);
+  padding: 1rem 1.25rem 1.25rem;
+  font-size: 0.9rem;
+}
+
+.help-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.help-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.help-group h3 {
+  margin: 1.1rem 0 0.35rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.help-hint {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.help-rows {
+  margin: 0;
+}
+
+.help-row {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.help-row dt {
+  min-width: 0;
+}
+
+.help-row dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: var(--muted);
+}
+
+.help-mouse {
   font-size: 0.85rem;
 }
 

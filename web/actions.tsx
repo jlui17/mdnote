@@ -18,6 +18,9 @@ declare global {
 
 export const isMac = typeof navigator !== "undefined" && /Mac|iP/.test(navigator.platform);
 
+/** Submits any note form; not a catalog action because it only exists while a form is open. */
+export const SUBMIT_KEY = isMac ? "⌘↩" : "Ctrl+↩";
+
 export function matchesEvent(kb: Keybinding, e: KeyboardEvent, mac = isMac): boolean {
   return (
     e.key.toLowerCase() === kb.key &&

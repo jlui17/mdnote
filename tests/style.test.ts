@@ -12,7 +12,7 @@ test("style.css keeps every color literal inside the :root token block", async (
 });
 
 test("frontend TS has no color literals", async () => {
-  for (const name of ["main.tsx", "actions.tsx", "anchor-dom.ts"]) {
+  for (const name of ["main.tsx", "actions.tsx", "anchor-dom.ts", "help.tsx"]) {
     const src = await Bun.file(new URL(`../web/${name}`, import.meta.url)).text();
     expect(src.match(COLOR_LITERAL) ?? []).toEqual([]);
   }

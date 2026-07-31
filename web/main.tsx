@@ -13,8 +13,8 @@ import {
   ActionButton,
   bindingFor,
   formatKeybinding,
-  isMac,
   runAction,
+  SUBMIT_KEY,
   useAction,
   useActionDispatcher,
   type ActionId,
@@ -27,6 +27,7 @@ import {
   selectionAnchor,
   type SelectionAnchor,
 } from "./anchor-dom.ts";
+import { HelpDialog } from "./help.tsx";
 import { createHoverController, type HoverController } from "./hover.ts";
 
 const HOVER_OPEN_MS = 250;
@@ -139,7 +140,13 @@ function IconButton(props: { id: ActionId; glyph: string }) {
   const kb = bindingFor(props.id);
   const title = ACTIONS[props.id].label + (kb ? ` (${formatKeybinding(kb)})` : "");
   return (
-    <button type="button" class="btn-icon" title={title} onClick={() => runAction(props.id)}>
+    <button
+      type="button"
+      class="btn-icon"
+      title={title}
+      aria-label={ACTIONS[props.id].label}
+      onClick={() => runAction(props.id)}
+    >
       {props.glyph}
     </button>
   );
@@ -475,6 +482,7 @@ function App() {
   const [hoveredEntryId, setHoveredEntryId] = useState<string | null>(null);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [toast, showToast] = useToast(2000);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const docRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -554,6 +562,7 @@ function App() {
 
   useAction("copy-prompt", copyPrompt);
   useAction("copy-markdown", copyMarkdown);
+  useAction("show-help", () => setHelpOpen((open) => !open));
   useActionDispatcher();
 
   const submit = (body: NewAnnotation) => {
@@ -686,6 +695,7 @@ function App() {
         onEditingChange={setEditingEntryId}
       />
       {toast && <div class="toast">{toast}</div>}
+      {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
       {openAnn && openAnnotation && (
         <AnnotationPopover
           popoverRef={annPopoverRef}
@@ -754,7 +764,7 @@ function NoteForm(props: {
       />
       <div class="row">
         <button type="submit" disabled={!note.trim()}>
-          {props.submitLabel} <kbd>{isMac ? "⌘↩" : "Ctrl+↩"}</kbd>
+          {props.submitLabel} <kbd>{SUBMIT_KEY}</kbd>
         </button>
         <button type="button" onClick={props.onCancel}>
           Cancel <kbd>Esc</kbd>
@@ -796,6 +806,7 @@ function Sidebar(props: {
   useAction("annotate-document", () => setAdding(true));
 
   const addKb = bindingFor("annotate-document");
+  const helpKb = bindingFor("show-help");
   const name = props.path?.split("/").pop() ?? "";
   const count = props.annotations.length;
 
@@ -828,6 +839,7 @@ function Sidebar(props: {
         <div class="sb-tools">
           <IconButton id="copy-markdown" glyph="⧉" />
           <ThemeToggle />
+          <IconButton id="show-help" glyph="?" />
         </div>
       </header>
 
@@ -842,7 +854,16 @@ function Sidebar(props: {
 
         <ul class="annotation-list" ref={listRef}>
         {props.annotations.length === 0 && (
-          <li class="empty">No annotations yet. Select text, or click a block to annotate it.</li>
+          <li class="empty">
+            No annotations yet.{" "}
+            {helpKb ? (
+              <>
+                Press <kbd>{formatKeybinding(helpKb)}</kbd> for the guide.
+              </>
+            ) : (
+              "Open the ? in the header for the guide."
+            )}
+          </li>
         )}
         {props.annotations.map((a) => (
           <li
