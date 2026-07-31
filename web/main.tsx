@@ -131,6 +131,7 @@ function App() {
   const [doc, setDoc] = useState<DocResponse | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [pending, setPending] = useState<SelectionAnchor | null>(null);
+  const [openAnn, setOpenAnn] = useState<{ id: string; rect: DOMRect } | null>(null);
   const [hovered, setHovered] = useState<Element | null>(null);
   const [focus, setFocus] = useState<{ id: string; tick: number } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -138,6 +139,7 @@ function App() {
 
   const docRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const annPopoverRef = useRef<HTMLDivElement>(null);
   const rangesRef = useRef<{ id: string; range: Range }[]>([]);
   const hoveredRef = useRef<Element | null>(null);
   const dismissRef = useRef(false);
@@ -155,6 +157,7 @@ function App() {
     events.addEventListener("update", () => {
       const y = window.scrollY;
       setPending(null);
+      setOpenAnn(null);
       hoveredRef.current = null;
       setHovered(null);
       void (async () => {
@@ -216,6 +219,7 @@ function App() {
   useEffect(() => {
     const onMouseUp = (e: MouseEvent) => {
       if (popoverRef.current?.contains(e.target as Node)) return;
+      if (annPopoverRef.current?.contains(e.target as Node)) return;
       const container = docRef.current;
       const anchor = container ? selectionAnchor(container) : null;
       // Chrome reports a collapsed selection during the click that follows a
@@ -225,12 +229,17 @@ function App() {
     };
     const onMouseDown = (e: MouseEvent) => {
       if (popoverRef.current?.contains(e.target as Node)) return;
-      dismissRef.current = popoverRef.current !== null;
+      if (annPopoverRef.current?.contains(e.target as Node)) return;
+      dismissRef.current = popoverRef.current !== null || annPopoverRef.current !== null;
       draggedRef.current = false;
       setPending(null);
+      setOpenAnn(null);
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPending(null);
+      if (e.key === "Escape") {
+        setPending(null);
+        setOpenAnn(null);
+      }
     };
     const onMouseMove = (e: MouseEvent) => {
       const el = (e.target as Element | null)?.closest?.("[data-source-line]") ?? null;
@@ -258,7 +267,10 @@ function App() {
     void postAnnotation(body).then(refreshAnnotations);
   };
 
-  const remove = (id: string) => void deleteAnnotation(id).then(refreshAnnotations);
+  const remove = (id: string) => {
+    setOpenAnn(null);
+    void deleteAnnotation(id).then(refreshAnnotations);
+  };
 
   const edit = (id: string, note: string) =>
     void patchAnnotation(id, { note }).then(refreshAnnotations);
@@ -286,6 +298,7 @@ function App() {
       const hit = rangesRef.current.find((r) => r.range.isPointInRange(caret.node, caret.offset));
       if (hit) {
         focusAnnotation(hit.id);
+        setOpenAnn({ id: hit.id, rect: hit.range.getBoundingClientRect() });
         return;
       }
     }
@@ -345,6 +358,18 @@ function App() {
         onGlobal={(note) => submit({ lineRange: null, anchorText: null, note })}
       />
       {copied && <div class="toast">Copied agent prompt</div>}
+      {openAnn &&
+        (() => {
+          const a = annotations.find((x) => x.id === openAnn.id);
+          return a ? (
+            <AnnotationPopover
+              popoverRef={annPopoverRef}
+              rect={openAnn.rect}
+              annotation={a}
+              onDelete={() => remove(a.id)}
+            />
+          ) : null;
+        })()}
       {pending && (
         <Popover
           popoverRef={popoverRef}
@@ -529,26 +554,52 @@ function Sidebar(props: {
   );
 }
 
+function usePopoverPosition(ref: { current: HTMLDivElement | null }, rect: DOMRect) {
+  const [pos, setPos] = useState({ left: rect.left, top: rect.bottom + 8 });
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const left = Math.min(Math.max(8, rect.left), window.innerWidth - el.offsetWidth - 8);
+    const below = rect.bottom + 8;
+    const top =
+      below + el.offsetHeight > window.innerHeight
+        ? Math.max(8, rect.top - el.offsetHeight - 8)
+        : below;
+    setPos({ left, top });
+    el.querySelector("textarea")?.focus();
+  }, [rect]);
+
+  return pos;
+}
+
+function AnnotationPopover(props: {
+  popoverRef: { current: HTMLDivElement | null };
+  rect: DOMRect;
+  annotation: Annotation;
+  onDelete: () => void;
+}) {
+  const pos = usePopoverPosition(props.popoverRef, props.rect);
+
+  return (
+    <div class="popover" ref={props.popoverRef} style={{ left: `${pos.left}px`, top: `${pos.top}px` }}>
+      {props.annotation.note && <p class="popover-note">{props.annotation.note}</p>}
+      <div class="row">
+        <button type="button" onClick={props.onDelete}>
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Popover(props: {
   popoverRef: { current: HTMLDivElement | null };
   rect: DOMRect;
   onPick: (note: string) => void;
 }) {
   const [note, setNote] = useState("");
-  const [pos, setPos] = useState({ left: props.rect.left, top: props.rect.bottom + 8 });
-
-  useLayoutEffect(() => {
-    const el = props.popoverRef.current;
-    if (!el) return;
-    const left = Math.min(Math.max(8, props.rect.left), window.innerWidth - el.offsetWidth - 8);
-    const below = props.rect.bottom + 8;
-    const top =
-      below + el.offsetHeight > window.innerHeight
-        ? Math.max(8, props.rect.top - el.offsetHeight - 8)
-        : below;
-    setPos({ left, top });
-    el.querySelector("textarea")?.focus();
-  }, [props.rect]);
+  const pos = usePopoverPosition(props.popoverRef, props.rect);
 
   return (
     <div class="popover" ref={props.popoverRef} style={{ left: `${pos.left}px`, top: `${pos.top}px` }}>

@@ -477,6 +477,14 @@ button kbd {
   padding: 0.6rem;
 }
 
+.popover-note {
+  margin: 0 0 0.5rem;
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+  max-height: 8rem;
+  overflow-y: auto;
+}
+
 @media (max-width: 900px) {
   .sidebar {
     position: static;
