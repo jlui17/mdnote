@@ -33,6 +33,7 @@ test("missing file yields defaults: dark theme, catalog keybindings", () => {
   expect(cfg.theme).toBe("dark");
   expect(cfg.keybindings).toEqual({
     "copy-prompt": "mod+shift+c",
+    "copy-markdown": null,
     "toggle-theme": null,
     "annotate-block": "c",
     "annotate-document": "shift+c",
@@ -67,6 +68,7 @@ test("invalid entries warn and fall back per-key", () => {
   expect(cfg.theme).toBe("dark");
   expect(cfg.keybindings).toEqual({
     "copy-prompt": "mod+shift+c",
+    "copy-markdown": null,
     "toggle-theme": null,
     "annotate-block": "c",
     "annotate-document": "shift+c",

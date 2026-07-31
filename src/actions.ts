@@ -1,5 +1,6 @@
 export type ActionId =
   | "copy-prompt"
+  | "copy-markdown"
   | "toggle-theme"
   | "annotate-block"
   | "annotate-document"
@@ -8,6 +9,7 @@ export type ActionId =
 
 export const ACTIONS: Record<ActionId, { label: string; keybinding?: string }> = {
   "copy-prompt": { label: "Copy review prompt", keybinding: "mod+shift+c" },
+  "copy-markdown": { label: "Copy markdown" },
   "toggle-theme": { label: "Toggle theme" },
   "annotate-block": { label: "Annotate hovered block", keybinding: "c" },
   "annotate-document": { label: "Add general note", keybinding: "shift+c" },

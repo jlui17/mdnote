@@ -302,6 +302,7 @@ body {
 
 .sidebar-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   justify-content: space-between;
@@ -334,12 +335,17 @@ textarea {
   color: var(--fg);
 }
 
-.copy-prompt {
+.copy-prompt,
+.copy-markdown {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.copy-markdown {
+  flex-basis: 100%;
 }
 
 button kbd {

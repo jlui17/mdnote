@@ -44,6 +44,7 @@ test("bindingFor reads the resolved map, defaulting to the catalog", () => {
   expect(
     bindingFor("copy-prompt", {
       "copy-prompt": "mod+p",
+      "copy-markdown": null,
       "toggle-theme": null,
       "annotate-block": "c",
       "annotate-document": "shift+c",
@@ -54,6 +55,7 @@ test("bindingFor reads the resolved map, defaulting to the catalog", () => {
   expect(
     bindingFor("copy-prompt", {
       "copy-prompt": null,
+      "copy-markdown": null,
       "toggle-theme": "mod+t",
       "annotate-block": "c",
       "annotate-document": "shift+c",

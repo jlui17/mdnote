@@ -72,7 +72,7 @@ An optional `~/.config/mdnote/settings.json` (honors `$XDG_CONFIG_HOME`) overrid
 ```
 
 - **`theme`** — `"dark"` (the default), `"light"`, or `"system"` (follow the OS preference).
-- **`keybindings`** — action → shortcut, merged over the defaults; `null` unbinds a default. A spec is `mod`/`shift`/`alt` modifiers plus a key, joined by `+` (`mod` is ⌘ on Mac, Ctrl elsewhere). Actions: `copy-prompt` (default `mod+shift+c`), `annotate-block` (default `c`), `annotate-document` (default `shift+c`), `delete-annotation` (default `d`), and `toggle-theme` (unbound by default).
+- **`keybindings`** — action → shortcut, merged over the defaults; `null` unbinds a default. A spec is `mod`/`shift`/`alt` modifiers plus a key, joined by `+` (`mod` is ⌘ on Mac, Ctrl elsewhere). Actions: `copy-prompt` (default `mod+shift+c`), `annotate-block` (default `c`), `annotate-document` (default `shift+c`), `delete-annotation` (default `d`), and `copy-markdown` and `toggle-theme` (unbound by default).
 
 An invalid entry warns in the server log (`~/.local/state/mdnote/server.log`, truncated each time the server starts) and falls back to the default for that key. Edits apply on page reload; no server restart needed.
 

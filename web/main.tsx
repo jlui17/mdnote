@@ -267,17 +267,17 @@ function useDocEvents(args: {
   return { dismissRef, draggedRef };
 }
 
-function useToast(ms: number): [boolean, () => void] {
-  const [on, setOn] = useState(false);
+function useToast(ms: number): [string | null, (message: string) => void] {
+  const [message, setMessage] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
 
-  const show = () => {
-    setOn(true);
+  const show = (m: string) => {
+    setMessage(m);
     if (timer.current !== null) clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setOn(false), ms);
+    timer.current = window.setTimeout(() => setMessage(null), ms);
   };
 
-  return [on, show];
+  return [message, show];
 }
 
 function App() {
@@ -287,7 +287,7 @@ function App() {
   );
   const [hovered, setHovered] = useState<Element | null>(null);
   const [focus, setFocus] = useState<{ id: string; tick: number } | null>(null);
-  const [copied, showCopied] = useToast(2000);
+  const [toast, showToast] = useToast(2000);
 
   const docRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -310,10 +310,17 @@ function App() {
   const copyPrompt = () => {
     const path = doc?.path;
     if (!path) return;
-    void copyText(agentPrompt(path)).then(showCopied);
+    void copyText(agentPrompt(path)).then(() => showToast("Copied agent prompt"));
+  };
+
+  const copyMarkdown = () => {
+    const source = doc?.source;
+    if (source == null) return;
+    void copyText(source).then(() => showToast("Copied markdown"));
   };
 
   useAction("copy-prompt", copyPrompt);
+  useAction("copy-markdown", copyMarkdown);
   useActionDispatcher();
 
   const submit = (body: NewAnnotation) => {
@@ -419,7 +426,7 @@ function App() {
         onEdit={edit}
         onGlobal={(note) => submit({ lineRange: null, anchorText: null, note })}
       />
-      {copied && <div class="toast">Copied agent prompt</div>}
+      {toast && <div class="toast">{toast}</div>}
       {openAnn && openAnnotation && (
         <AnnotationPopover
           popoverRef={annPopoverRef}
@@ -525,6 +532,7 @@ function Sidebar(props: {
       <header class="sidebar-head">
         <ActionButton id="copy-prompt" class="copy-prompt" />
         <ThemeToggle />
+        <ActionButton id="copy-markdown" class="copy-markdown" />
       </header>
 
       <div class="global-form">
