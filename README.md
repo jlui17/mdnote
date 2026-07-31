@@ -19,7 +19,7 @@ mdnote review notes.md
 
 The browser opens on the rendered doc. Highlight a span and type a note in the popover — "make this punchier", "remove this paragraph" — and hit ⌘↩ (Ctrl+Enter elsewhere) or the Add button (or click "Add general note" for a doc-wide instruction not tied to a span). Clicking annotated text jumps to its note in the sidebar; the ✎ button (or double-clicking the note) edits it in place.
 
-The page follows your OS light/dark preference; the ◐/☀/☾ button in the sidebar pins it to light or dark (remembered per browser).
+The page opens in dark mode (or whatever `theme` you set in [Settings](#settings)); the ◐/☀/☾ button in the sidebar switches it for the session.
 
 When you're done annotating, click **Copy review prompt** in the sidebar (or hit ⌘⇧C / Ctrl+Shift+C) to copy a ready-made prompt for your agent: paste it into the session and it walks the agent through reading, applying, and clearing your notes.
 
@@ -56,6 +56,25 @@ To have Claude Code run this loop itself when you say things like "I left notes"
 mkdir -p ~/.claude/skills/mdnote
 ln -s "$(pwd)/SKILL.md" ~/.claude/skills/mdnote/SKILL.md
 ```
+
+## Settings
+
+An optional `~/.config/mdnote/settings.json` (honors `$XDG_CONFIG_HOME`) overrides the app defaults:
+
+```json
+{
+  "theme": "light",
+  "keybindings": {
+    "copy-prompt": "mod+p",
+    "toggle-theme": "mod+shift+t"
+  }
+}
+```
+
+- **`theme`** — `"dark"` (the default), `"light"`, or `"system"` (follow the OS preference).
+- **`keybindings`** — action → shortcut, merged over the defaults; `null` unbinds a default. A spec is `mod`/`shift`/`alt` modifiers plus a key, joined by `+` (`mod` is ⌘ on Mac, Ctrl elsewhere). Actions: `copy-prompt` (default `mod+shift+c`) and `toggle-theme` (unbound by default).
+
+An invalid entry warns in the server log and falls back to the default for that key. Edits apply on page reload; no server restart needed.
 
 ## Remote use
 

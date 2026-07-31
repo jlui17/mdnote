@@ -38,13 +38,13 @@ test("formatKeybinding renders per platform", () => {
   expect(formatKeybinding(parseKeybinding("alt+k"), true)).toBe("⌥K");
 });
 
-test("bindingFor reads the catalog and honors overrides", () => {
+test("bindingFor reads the resolved map, defaulting to the catalog", () => {
   expect(bindingFor("copy-prompt")).toEqual(parseKeybinding("mod+shift+c"));
   expect(bindingFor("toggle-theme")).toBeNull();
-  expect(bindingFor("toggle-theme", { "toggle-theme": "mod+shift+t" })).toEqual(
-    parseKeybinding("mod+shift+t"),
+  expect(bindingFor("copy-prompt", { "copy-prompt": "mod+p", "toggle-theme": null })).toEqual(
+    parseKeybinding("mod+p"),
   );
-  expect(bindingFor("copy-prompt", { "copy-prompt": "mod+p" })).toEqual(parseKeybinding("mod+p"));
+  expect(bindingFor("copy-prompt", { "copy-prompt": null, "toggle-theme": "mod+t" })).toBeNull();
 });
 
 test("every catalog keybinding parses to a real key", () => {

@@ -5,6 +5,8 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 ## Map (runtime order)
 
 - `src/cli.ts` — entry (`review` / `comments` / `clear`), lock-file server discovery. `review` dynamic-imports `server.ts` so `comments`/`clear` keep working even when the server is broken.
+- `src/config.ts` — reads `~/.config/mdnote/settings.json` (`$XDG_CONFIG_HOME` honored), validates warn-and-drop per key, merges over defaults into a `ResolvedConfig`.
+- `src/actions.ts` — pure action catalog (`ActionId`s, labels, default keybindings) and keybinding spec parsing; shared by `config.ts` and the frontend.
 - `src/render.ts` — markdown-it with a rule stamping `data-source-line="start-end"` on block elements.
 - `src/anchor.ts` — `locate()` matches rendered-text selections against Markdown source; `reanchor()` re-resolves annotations after edits. The load-bearing module: staleness is `locate()` returning null.
 - `src/server.ts` — Bun.serve API + SSE + file watcher; bundles the frontend at startup.
@@ -21,7 +23,8 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 - **Line-number conventions differ by one.** `data-source-line` and `Annotation.lineRange` are 1-based inclusive; markdown-it's `token.map` is 0-based exclusive-end (`[s, e)` → `s+1`-`e`). This conversion is the repo's off-by-one hotspot; `tests/render.test.ts` pins it per block type.
 - **Fences stamp `<pre>`, not `<code>`.** markdown-it's default fence renderer puts token attrs on `<code>`; `render.ts` overrides it so the innermost stamped ancestor is always the block element.
 - **No localhost anywhere in the frontend.** Remote serving is first-class: all fetches are root-relative, SSE derives from `window.location`.
-- **Every color literal lives in the `:root` token block of `style.css`.** Tokens carry both palettes via `light-dark()`; the theme toggle switches by setting `data-theme` on `<html>` (persisted to localStorage, applied pre-paint by an inline script in `index.html`), which flips `color-scheme`. `tests/style.test.ts` pins the no-literals rule for the CSS and the frontend TS — anything new that colors pixels (e.g. syntax highlighting) must go through tokens.
+- **Every color literal lives in the `:root` token block of `style.css`.** Tokens carry both palettes via `light-dark()`; theme is set via `data-theme` on `<html>` (from settings.json, applied pre-paint by an inline script in `index.html`; the toggle changes it session-only), which flips `color-scheme`. `tests/style.test.ts` pins the no-literals rule for the CSS and the frontend TS — anything new that colors pixels (e.g. syntax highlighting) must go through tokens.
+- **The server owns settings truth.** `loadConfig()` merges settings.json over defaults and the server injects the resolved result into `index.html` as `window.__MDNOTE_CONFIG__` per request (page reload applies edits). The frontend never merges or persists settings — localStorage is gone; the theme toggle is session-only.
 - **Stale annotations are never silently dropped.** `reanchor()` flips them to `status: "stale"` and keeps the old `lineRange`; only a human (or explicit `clear`) removes them.
 
 ## Hiccups

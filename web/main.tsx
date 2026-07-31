@@ -1,6 +1,6 @@
 import { render } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation } from "../src/types.ts";
+import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation, Theme } from "../src/types.ts";
 import { ActionButton, isMac, useAction, useActionDispatcher } from "./actions.tsx";
 import { caretAt, findRange, selectionAnchor, type SelectionAnchor } from "./anchor-dom.ts";
 
@@ -80,24 +80,17 @@ async function copyText(text: string): Promise<void> {
   ta.remove();
 }
 
-type ThemeMode = "system" | "light" | "dark";
-const THEME_KEY = "mdnote-theme";
-const THEME_NEXT: Record<ThemeMode, ThemeMode> = { system: "light", light: "dark", dark: "system" };
-const THEME_ICON: Record<ThemeMode, string> = { system: "◐", light: "☀", dark: "☾" };
+const THEME_NEXT: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
+const THEME_ICON: Record<Theme, string> = { system: "◐", light: "☀", dark: "☾" };
 
 function ThemeToggle() {
-  const [mode, setMode] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem(THEME_KEY);
-    return saved === "light" || saved === "dark" ? saved : "system";
-  });
+  const [mode, setMode] = useState<Theme>(() => window.__MDNOTE_CONFIG__?.theme ?? "dark");
 
   useEffect(() => {
     if (mode === "system") {
       delete document.documentElement.dataset.theme;
-      localStorage.removeItem(THEME_KEY);
     } else {
       document.documentElement.dataset.theme = mode;
-      localStorage.setItem(THEME_KEY, mode);
     }
   }, [mode]);
 

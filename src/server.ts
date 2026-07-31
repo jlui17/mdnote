@@ -2,6 +2,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { render } from "./render.ts";
 import { locate, reanchor } from "./anchor.ts";
+import { loadConfig } from "./config.ts";
 import { readSidecar, sidecarPath, writeSidecar } from "./store.ts";
 import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation } from "./types.ts";
 
@@ -63,7 +64,10 @@ export async function startServer(opts: { file: string; host: string; port: numb
       if (req.method === "GET" && (path === "/" || path === "/index.html")) {
         const f = Bun.file(join(WEB_DIR, "index.html"));
         if (!(await f.exists())) return new Response("index.html not found", { status: 404 });
-        return new Response(f, { headers: { "content-type": "text/html; charset=utf-8" } });
+        const config = JSON.stringify(loadConfig()).replace(/</g, "\\u003c");
+        return new Response((await f.text()).replace("__MDNOTE_CONFIG_JSON__", config), {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
       }
 
       if (req.method === "GET" && path === "/main.js") {

@@ -1,22 +1,22 @@
 import { useEffect, useRef } from "preact/hooks";
+import {
+  ACTIONS,
+  defaultKeybindings,
+  parseKeybinding,
+  type ActionId,
+  type Keybinding,
+} from "../src/actions.ts";
+import type { ResolvedConfig } from "../src/types.ts";
 
-export type ActionId = "copy-prompt" | "toggle-theme";
+export { ACTIONS, parseKeybinding, type ActionId, type Keybinding };
 
-export const ACTIONS: Record<ActionId, { label: string; keybinding?: string }> = {
-  "copy-prompt": { label: "Copy review prompt", keybinding: "mod+shift+c" },
-  "toggle-theme": { label: "Toggle theme" },
-};
-
-export type Keybinding = { mod: boolean; shift: boolean; alt: boolean; key: string };
+declare global {
+  interface Window {
+    __MDNOTE_CONFIG__?: ResolvedConfig;
+  }
+}
 
 export const isMac = typeof navigator !== "undefined" && /Mac|iP/.test(navigator.platform);
-
-export function parseKeybinding(spec: string): Keybinding {
-  const parts = spec.toLowerCase().split("+");
-  const key = parts[parts.length - 1] ?? "";
-  const mods = new Set(parts.slice(0, -1));
-  return { mod: mods.has("mod"), shift: mods.has("shift"), alt: mods.has("alt"), key };
-}
 
 export function matchesEvent(kb: Keybinding, e: KeyboardEvent, mac = isMac): boolean {
   return (
@@ -41,11 +41,15 @@ export function formatKeybinding(kb: Keybinding, mac = isMac): string {
   return parts.join("+");
 }
 
+function configuredKeybindings(): Record<ActionId, string | null> {
+  return (typeof window !== "undefined" && window.__MDNOTE_CONFIG__?.keybindings) || defaultKeybindings();
+}
+
 export function bindingFor(
   id: ActionId,
-  overrides?: Partial<Record<ActionId, string>>,
+  keybindings: Record<ActionId, string | null> = configuredKeybindings(),
 ): Keybinding | null {
-  const spec = overrides?.[id] ?? ACTIONS[id].keybinding;
+  const spec = keybindings[id];
   return spec ? parseKeybinding(spec) : null;
 }
 
