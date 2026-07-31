@@ -45,7 +45,7 @@ $ mdnote comments notes.md --json
 The agent edits `notes.md` to match the notes, then clears what it addressed:
 
 ```
-$ mdnote clear notes.md --id 3f1e2b7a-...
+$ mdnote clear notes.md --ids 3f1e2b7a-...
 ```
 
 The browser page live-reloads on its own. Repeat until `mdnote comments` returns nothing open.
@@ -71,7 +71,7 @@ Open `http://<vm-ip>:7777` from anywhere that can reach the host. Nothing in the
 
 - **`mdnote review <file.md> [--host H] [--port P]`** — starts the server and opens the browser (loopback only). Defaults to `127.0.0.1` on a random port.
 - **`mdnote comments <file.md> [--json]`** — lists annotations. `--json` prints `{file, annotations}`; without it, a human-readable list.
-- **`mdnote clear <file.md> [--id ID]`** — clears one annotation by `--id`, or all annotations if omitted.
+- **`mdnote clear <file.md> [--ids ID[,ID...]]`** — clears the listed annotations by `--ids` (comma-separated), or all annotations if omitted.
 
 ## Annotation schema
 

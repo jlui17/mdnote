@@ -55,11 +55,11 @@ function agentPrompt(path: string): string {
 
   mdnote comments "${path}" --json
 
-Apply each annotation with status "open": the note is a free-form instruction about the anchored span ("make this punchier", "remove this"); when anchorText is null it applies to the whole document. lineRange is 1-based inclusive source lines; confirm the spot against anchorText before editing. After addressing an annotation, clear it:
+Apply each "open" annotation's note to its anchored span (whole document when anchorText is null; lineRange is 1-based inclusive source lines). Then clear what you addressed:
 
-  mdnote clear "${path}" --id <id>
+  mdnote clear "${path}" --ids <id>,<id>,...
 
-Repeat until no open annotations remain. Leave "stale" annotations alone and flag them to me.`;
+Leave "stale" annotations alone and flag them to me.`;
 }
 
 async function copyText(text: string): Promise<void> {

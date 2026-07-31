@@ -41,10 +41,10 @@ Use `lineRange` to jump to the spot; confirm you have the right span by matching
 ## 4. Clear addressed annotations
 
 ```
-mdnote clear <file.md> --id <id>
+mdnote clear <file.md> --ids <id>,<id>,...
 ```
 
-One call per annotation you addressed, or clear everything at once when done:
+Pass every id you addressed in one comma-separated call, or clear everything at once when done:
 
 ```
 mdnote clear <file.md>

@@ -138,14 +138,17 @@ async function cmdClear(args: string[]) {
   if (!file) die("clear: missing <file.md>");
   if (!existsSync(file)) die(`clear: no such file: ${file}`);
 
-  const id = typeof flags.id === "string" ? flags.id : undefined;
+  const ids = typeof flags.ids === "string" ? flags.ids.split(",").filter(Boolean) : undefined;
   const lock = readLiveLock(file);
   if (lock) {
     try {
-      const url = id
-        ? `http://127.0.0.1:${lock.port}/annotations/${id}`
-        : `http://127.0.0.1:${lock.port}/annotations`;
-      await fetchWithTimeout(url, { method: "DELETE" });
+      if (ids) {
+        for (const id of ids) {
+          await fetchWithTimeout(`http://127.0.0.1:${lock.port}/annotations/${id}`, { method: "DELETE" });
+        }
+      } else {
+        await fetchWithTimeout(`http://127.0.0.1:${lock.port}/annotations`, { method: "DELETE" });
+      }
       return;
     } catch {
       // fall through to sidecar
@@ -153,7 +156,7 @@ async function cmdClear(args: string[]) {
   }
 
   const sidecar = readSidecar(file);
-  sidecar.annotations = id ? sidecar.annotations.filter((a) => a.id !== id) : [];
+  sidecar.annotations = ids ? sidecar.annotations.filter((a) => !ids.includes(a.id)) : [];
   writeSidecar(file, sidecar);
 }
 
