@@ -68,13 +68,13 @@ recorded in it (not hardcoded loopback), with the sidecar fallback unchanged.
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Two `mdnote <file>` invocations from two terminals yield one server; both commands exit immediately
-- [ ] Explicit `--host`/`--port` mismatch with the live server errors and names `mdnote stop`
-- [ ] `mdnote stop` terminates the server and cleans the lock; stale lock (dead pid) is treated as no server
-- [ ] No `.mdnote.lock` file is ever written; `comments`/`clear` work against the live server and fall back to the sidecar when none runs
-- [ ] `bun test` and `bunx tsc --noEmit` clean
+- [x] Two `mdnote <file>` invocations from two terminals yield one server; both commands exit immediately
+- [x] Explicit `--host`/`--port` mismatch with the live server errors and names `mdnote stop`
+- [x] `mdnote stop` terminates the server and cleans the lock; stale lock (dead pid) is treated as no server
+- [x] No `.mdnote.lock` file is ever written; `comments`/`clear` work against the live server and fall back to the sidecar when none runs
+- [x] `bun test` and `bunx tsc --noEmit` clean
 
 ## 04 — Idle shutdown and server log
 
