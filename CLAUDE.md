@@ -9,7 +9,7 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 - `src/actions.ts` — pure action catalog (`ActionId`s, labels, default keybindings) and keybinding spec parsing; shared by `config.ts` and the frontend.
 - `src/render.ts` — markdown-it with a rule stamping `data-source-line="start-end"` on block elements.
 - `src/anchor.ts` — `locate()` matches rendered-text selections against Markdown source; `reanchor()` re-resolves annotations after edits. The load-bearing module: staleness is `locate()` returning null.
-- `src/server.ts` — Bun.serve API + SSE + file watcher; bundles the frontend at startup.
+- `src/server.ts` — Bun.serve API + SSE + file watchers over a registry of open files (path → SSE clients); bundles the frontend at startup.
 - `src/store.ts` — sidecar JSON read/write (`<file>.mdnote.json`), atomic via temp-file + rename.
 - `src/types.ts` — shared types. Import from here; never redeclare.
 - `web/anchor-dom.ts` — framework-free DOM math (selection → `data-source-line` → line ranges, text-node search for highlight ranges). No Preact imports, by design.
@@ -25,16 +25,17 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 - **No localhost anywhere in the frontend.** Remote serving is first-class: all fetches are root-relative, SSE derives from `window.location`.
 - **Every color literal lives in the `:root` token block of `style.css`.** Tokens carry both palettes via `light-dark()`; theme is set via `data-theme` on `<html>` (from settings.json, applied pre-paint by an inline script in `index.html`; the toggle changes it session-only), which flips `color-scheme`. `tests/style.test.ts` pins the no-literals rule for the CSS and the frontend TS — anything new that colors pixels (e.g. syntax highlighting) must go through tokens.
 - **The server owns settings truth.** `loadConfig()` merges settings.json over defaults and the server injects the resolved result into `index.html` as `window.__MDNOTE_CONFIG__` per request (page reload applies edits). The frontend never merges or persists settings — localStorage is gone; the theme toggle is session-only.
+- **What may be served is one predicate.** `isMarkdownPath()` plus an existence check gates both `POST /api/open` and document-GET auto-registration; both 404 identically. `/api/*?file=` serves only registered files — auto-registration happens on document GETs alone.
 - **Stale annotations are never silently dropped.** `reanchor()` flips them to `status: "stale"` and keeps the old `lineRange`; only a human (or explicit `clear`) removes them.
 
 ## Hiccups
 
 - **Frontend JS bundles once at server startup** (`Bun.build` on `web/main.tsx`). Restart the server (`mdnote <file.md>`) to see `web/` TS changes; `style.css` is read per request, so CSS changes only need a page reload.
 - **The shebang on `src/cli.ts` is load-bearing.** `bun link` symlinks the bin straight to the file; without `#!/usr/bin/env bun` the shell executes it as a shell script.
-- **The watcher is `fs.watch` on the parent directory, filtered by basename** (50ms debounce), not a per-file watch — editors and agents replace files by rename, which per-file watches lose track of.
+- **Watchers are `fs.watch` on the parent directory, filtered by basename** (50ms debounce per file), not per-file watches — editors and agents replace files by rename, which per-file watches lose track of. One watcher per directory serves every registered file in it, created lazily when that file's first SSE client connects.
 - **The lock file (`<file>.mdnote.lock`) can be stale.** CLI discovery checks the recorded pid is alive and gives the API ~300ms before falling back to reading the sidecar directly; treat the sidecar as the source of truth, the API as an optimization.
 - **JSX is Preact** via root tsconfig (`jsxImportSource: preact`), which `Bun.build` picks up. Don't add a per-file pragma or React types.
 
 ## Verifying changes
 
-`bun test` (44 tests: render stamps, anchor matching, sidecar, style tokens) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a browser poke — use the `browser-test` skill (drives the real UI headlessly with agent-browser: drag-select, annotate, edit the file, assert sidecar/highlights).
+`bun test` (71 tests: render stamps, anchor matching, sidecar, style tokens, server registry/SSE scoping) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a browser poke — use the `browser-test` skill (drives the real UI headlessly with agent-browser: drag-select, annotate, edit the file, assert sidecar/highlights).

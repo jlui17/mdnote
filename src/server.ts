@@ -1,5 +1,5 @@
-import { watch, type FSWatcher } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { existsSync, watch, type FSWatcher } from "node:fs";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { render } from "./render.ts";
 import { locate, reanchor } from "./anchor.ts";
 import { loadConfig } from "./config.ts";
@@ -24,14 +24,33 @@ export function pathToUrl(file: string): string {
   return file.split("/").map(encodeURIComponent).join("/");
 }
 
+export function isMarkdownPath(file: string): boolean {
+  const ext = extname(file).toLowerCase();
+  return ext === ".md" || ext === ".markdown";
+}
+
+function servable(file: string): boolean {
+  return isMarkdownPath(file) && existsSync(file);
+}
+
+interface FileState {
+  clients: Set<ReadableStreamDefaultController<Uint8Array>>;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+interface DirWatch {
+  watcher: FSWatcher;
+  /** Watched basename (document or sidecar) → the document it belongs to. */
+  names: Map<string, string>;
+}
+
 export async function startServer(opts: { file: string; host: string; port: number }): Promise<{
   url: string;
   port: number;
+  watchedDirs(): string[];
   stop(): Promise<void> | void;
 }> {
-  const file = resolve(opts.file);
-  const dir = dirname(file);
-  const watched = new Set([basename(file), basename(sidecarPath(file))]);
+  const initial = resolve(opts.file);
 
   let mainJs = "";
   try {
@@ -40,23 +59,78 @@ export async function startServer(opts: { file: string; host: string; port: numb
     console.error(`warning: could not bundle web/main.tsx: ${e}`);
   }
 
-  const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const files = new Map<string, FileState>();
+  const dirWatchers = new Map<string, DirWatch>();
   const encoder = new TextEncoder();
-  function broadcast() {
-    for (const c of clients) {
+
+  function register(file: string): FileState {
+    let state = files.get(file);
+    if (!state) {
+      state = { clients: new Set(), timer: null };
+      files.set(file, state);
+    }
+    return state;
+  }
+
+  function broadcast(state: FileState) {
+    for (const c of state.clients) {
       try {
         c.enqueue(encoder.encode("event: update\ndata: {}\n\n"));
       } catch {
-        clients.delete(c);
+        state.clients.delete(c);
       }
     }
   }
 
-  const readSource = () => Bun.file(file).text();
-
-  function persist(annotations: Annotation[]) {
-    writeSidecar(file, { version: 1, annotations });
+  function schedule(file: string) {
+    const state = files.get(file);
+    if (!state) return;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => onChange(file), 50);
   }
+
+  async function onChange(file: string) {
+    const state = files.get(file);
+    if (!state) return;
+    state.timer = null;
+    let source: string;
+    try {
+      source = await Bun.file(file).text();
+    } catch {
+      broadcast(state);
+      return;
+    }
+    const sidecar = readSidecar(file);
+    const next = reanchor(source, sidecar.annotations);
+    if (JSON.stringify(next) !== JSON.stringify(sidecar.annotations))
+      writeSidecar(file, { version: 1, annotations: next });
+    broadcast(state);
+  }
+
+  function ensureWatch(file: string) {
+    const dir = dirname(file);
+    let entry = dirWatchers.get(dir);
+    if (entry?.names.has(basename(file))) return;
+    if (!entry) {
+      const names = new Map<string, string>();
+      let watcher: FSWatcher;
+      try {
+        watcher = watch(dir, (_event, name) => {
+          const target = name ? names.get(name) : undefined;
+          if (target) schedule(target);
+        });
+      } catch (e) {
+        console.error(`warning: file watching disabled for ${dir}: ${e}`);
+        return;
+      }
+      entry = { watcher, names };
+      dirWatchers.set(dir, entry);
+    }
+    entry.names.set(basename(file), file);
+    entry.names.set(basename(sidecarPath(file)), file);
+  }
+
+  register(initial);
 
   const server = Bun.serve({
     hostname: opts.host,
@@ -78,9 +152,27 @@ export async function startServer(opts: { file: string; host: string; port: numb
       }
 
       if (path.startsWith("/api/")) {
-        const qfile = url.searchParams.get("file");
-        if (!qfile || resolve(qfile) !== file) return json({ error: "unknown file" }, 404);
-        return apiFetch(req, path.slice("/api".length));
+        const route = path.slice("/api".length);
+        let qfile = url.searchParams.get("file");
+
+        if (route === "/open") {
+          if (req.method !== "POST") return new Response("not found", { status: 404 });
+          if (!qfile) {
+            const body = (await req.json().catch(() => null)) as { file?: string } | null;
+            qfile = body?.file ?? null;
+          }
+          if (!qfile) return json({ error: "unknown file" }, 404);
+          const file = resolve(qfile);
+          if (!servable(file)) return json({ error: "unknown file" }, 404);
+          register(file);
+          return json({ file, url: pathToUrl(file) });
+        }
+
+        if (!qfile) return json({ error: "unknown file" }, 404);
+        const file = resolve(qfile);
+        const state = files.get(file);
+        if (!state) return json({ error: "unknown file" }, 404);
+        return apiFetch(req, route, file, state);
       }
 
       let docPath: string;
@@ -89,23 +181,37 @@ export async function startServer(opts: { file: string; host: string; port: numb
       } catch {
         return new Response("not found", { status: 404 });
       }
+      if (docPath !== "/") docPath = resolve(docPath);
 
-      if (req.method === "GET" && (docPath === "/" || docPath === file)) {
-        if (docPath === "/")
-          return new Response(null, { status: 302, headers: { location: pathToUrl(file) } });
-        const f = Bun.file(join(WEB_DIR, "index.html"));
-        if (!(await f.exists())) return new Response("index.html not found", { status: 404 });
-        const config = JSON.stringify(loadConfig()).replace(/</g, "\\u003c");
-        return new Response((await f.text()).replace("__MDNOTE_CONFIG_JSON__", config), {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        });
+      if (req.method !== "GET") return new Response("not found", { status: 404 });
+
+      if (docPath === "/")
+        return new Response(null, { status: 302, headers: { location: pathToUrl(initial) } });
+
+      if (!files.has(docPath)) {
+        if (!servable(docPath)) return new Response("not found", { status: 404 });
+        register(docPath);
       }
 
-      return new Response("not found", { status: 404 });
+      const f = Bun.file(join(WEB_DIR, "index.html"));
+      if (!(await f.exists())) return new Response("index.html not found", { status: 404 });
+      const config = JSON.stringify(loadConfig()).replace(/</g, "\\u003c");
+      return new Response((await f.text()).replace("__MDNOTE_CONFIG_JSON__", config), {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
     },
   });
 
-  async function apiFetch(req: Request, path: string): Promise<Response> {
+  async function apiFetch(
+    req: Request,
+    path: string,
+    file: string,
+    state: FileState,
+  ): Promise<Response> {
+    const readSource = () => Bun.file(file).text();
+    const persist = (annotations: Annotation[]) =>
+      writeSidecar(file, { version: 1, annotations });
+
     if (req.method === "GET" && path === "/doc") {
       const source = await readSource();
       const body: DocResponse = { path: file, source, html: render(source) };
@@ -163,15 +269,16 @@ export async function startServer(opts: { file: string; host: string; port: numb
     }
 
     if (req.method === "GET" && path === "/events") {
+      ensureWatch(file);
       let self: ReadableStreamDefaultController<Uint8Array>;
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           self = controller;
-          clients.add(controller);
+          state.clients.add(controller);
           controller.enqueue(encoder.encode(": connected\n\n"));
         },
         cancel() {
-          clients.delete(self);
+          state.clients.delete(self);
         },
       });
       return new Response(stream, {
@@ -186,46 +293,15 @@ export async function startServer(opts: { file: string; host: string; port: numb
     return new Response("not found", { status: 404 });
   }
 
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let watcher: FSWatcher | null = null;
-  try {
-    watcher = watch(dir, (_event, name) => {
-      if (!name || !watched.has(name)) return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(onChange, 50);
-    });
-  } catch (e) {
-    console.error(`warning: file watching disabled: ${e}`);
-  }
-
-  async function onChange() {
-    timer = null;
-    let source: string;
-    try {
-      source = await readSource();
-    } catch {
-      broadcast();
-      return;
-    }
-    const sidecar = readSidecar(file);
-    const next = reanchor(source, sidecar.annotations);
-    if (JSON.stringify(next) !== JSON.stringify(sidecar.annotations)) persist(next);
-    broadcast();
-  }
-
   const port = server.port ?? opts.port;
   return {
-    url: `http://${opts.host}:${port}${pathToUrl(file)}`,
+    url: `http://${opts.host}:${port}${pathToUrl(initial)}`,
     port,
+    watchedDirs: () => [...dirWatchers.keys()],
     stop() {
-      if (timer) clearTimeout(timer);
-      watcher?.close();
-      for (const c of clients) {
-        try {
-          c.close();
-        } catch {}
-      }
-      clients.clear();
+      for (const entry of dirWatchers.values()) entry.watcher.close();
+      dirWatchers.clear();
+      for (const state of files.values()) if (state.timer) clearTimeout(state.timer);
       return server.stop(true);
     },
   };

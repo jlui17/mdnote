@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToUrl, startServer } from "../src/server.ts";
+import { isMarkdownPath, pathToUrl, startServer } from "../src/server.ts";
 
 let dir: string;
 let file: string;
@@ -76,5 +76,96 @@ describe("/api routes carry file identity", () => {
     expect(annotations.map((a) => a.id)).toContain(id);
 
     expect((await fetch(`${base}/api/annotations/${id}${q}`, { method: "DELETE" })).status).toBe(204);
+  });
+});
+
+describe("markdown predicate", () => {
+  test("accepts .md and .markdown, case-insensitively", () => {
+    expect(isMarkdownPath("/a/b.md")).toBe(true);
+    expect(isMarkdownPath("/a/b.MARKDOWN")).toBe(true);
+    expect(isMarkdownPath("/a/b.txt")).toBe(false);
+    expect(isMarkdownPath("/a/b")).toBe(false);
+  });
+});
+
+describe("registry, /open and auto-register", () => {
+  test("an existing .md auto-registers on GET and its api routes work", async () => {
+    const second = join(dir, "second.md");
+    writeFileSync(second, "# Second\n");
+    const q = `?file=${encodeURIComponent(second)}`;
+
+    expect((await fetch(`${base}/api/doc${q}`)).status).toBe(404);
+    expect((await fetch(base + pathToUrl(second))).status).toBe(200);
+
+    const res = await fetch(`${base}/api/doc${q}`);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { html: string }).html).toContain("Second");
+  });
+
+  test("POST /api/open registers a file named in the body", async () => {
+    const third = join(dir, "third.md");
+    writeFileSync(third, "# Third\n");
+    const q = `?file=${encodeURIComponent(third)}`;
+
+    expect((await fetch(`${base}/api/doc${q}`)).status).toBe(404);
+    const opened = await fetch(`${base}/api/open`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: third }),
+    });
+    expect(opened.status).toBe(200);
+    expect(await opened.json()).toEqual({ file: third, url: pathToUrl(third) });
+    expect((await fetch(`${base}/api/doc${q}`)).status).toBe(200);
+  });
+
+  test("non-markdown and missing paths 404 at /open and on GET", async () => {
+    const notMd = join(dir, "notes.txt");
+    writeFileSync(notMd, "hello\n");
+    const missing = join(dir, "missing.md");
+
+    for (const target of [notMd, missing]) {
+      expect((await fetch(base + pathToUrl(target))).status).toBe(404);
+      const res = await fetch(`${base}/api/open?file=${encodeURIComponent(target)}`, {
+        method: "POST",
+      });
+      expect(res.status).toBe(404);
+    }
+  });
+});
+
+describe("watchers and SSE scoping", () => {
+  let other: string;
+
+  /** Connect an SSE client for `target`, edit `file`, and report whether the client heard about it. */
+  async function pokeWhileWatching(target: string, edit: string): Promise<string | null> {
+    const res = await fetch(`${base}/api/events?file=${encodeURIComponent(target)}`);
+    const reader = res.body!.getReader();
+    await reader.read();
+    const update = reader.read().then(({ value }) => new TextDecoder().decode(value));
+    await Bun.sleep(30);
+    writeFileSync(file, edit);
+    try {
+      return await Promise.race([update, Bun.sleep(600).then(() => null)]);
+    } finally {
+      await reader.cancel();
+    }
+  }
+
+  beforeAll(async () => {
+    other = join(dir, "scoped.md");
+    writeFileSync(other, "# Scoped\n");
+    await fetch(base + pathToUrl(other));
+  });
+
+  test("a client hears about its own file's change", async () => {
+    expect(await pokeWhileWatching(file, "# Hello\n\nworld edited\n")).toContain("event: update");
+  });
+
+  test("a client hears nothing about another file's change", async () => {
+    expect(await pokeWhileWatching(other, "# Hello\n\nworld edited again\n")).toBeNull();
+  });
+
+  test("files in one directory share a single directory watcher", () => {
+    expect(server.watchedDirs()).toEqual([dir]);
   });
 });
