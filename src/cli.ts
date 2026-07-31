@@ -130,6 +130,28 @@ async function cmdReview(args: string[]) {
   if (lock.host === DEFAULT_HOST || lock.host === "localhost") Bun.spawn(["open", url]);
 }
 
+async function cmdList() {
+  const lock = readLiveLock();
+  if (!lock) {
+    console.log("mdnote: no server running");
+    return;
+  }
+  let files: { path: string; url: string }[];
+  try {
+    const res = await fetchWithTimeout(`${origin(lock)}/api/files`);
+    if (!res.ok) throw new Error("bad response");
+    files = ((await res.json()) as { files: { path: string; url: string }[] }).files;
+  } catch {
+    console.log("mdnote: server not responding");
+    return;
+  }
+  if (files.length === 0) {
+    console.log("mdnote: no files open");
+    return;
+  }
+  for (const f of files) console.log(`${f.path}  ${origin(lock)}${f.url}`);
+}
+
 function cmdStop() {
   const lock = readLiveLock();
   if (!lock) {
@@ -217,6 +239,9 @@ async function main() {
       break;
     case "stop":
       cmdStop();
+      break;
+    case "list":
+      await cmdList();
       break;
     default:
       await cmdReview(process.argv.slice(2));
