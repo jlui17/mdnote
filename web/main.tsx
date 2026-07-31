@@ -110,8 +110,14 @@ function ThemeToggle() {
 /** Block box extended to the parent list's left edge, covering markers, which render outside the li box. */
 function blockBox(el: Element): { left: number; top: number; width: number; height: number } {
   const r = el.getBoundingClientRect();
-  if (el.tagName !== "LI") return r;
-  const list = el.parentElement?.getBoundingClientRect();
+  const li =
+    el.tagName === "LI"
+      ? el
+      : el.parentElement?.tagName === "LI" && el.parentElement.firstElementChild === el
+        ? el.parentElement
+        : null;
+  if (!li) return r;
+  const list = li.parentElement?.getBoundingClientRect();
   const left = list ? Math.min(r.left, list.left) : r.left;
   return { left, top: r.top, width: r.right - left, height: r.height };
 }
