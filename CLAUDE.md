@@ -37,4 +37,4 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 
 ## Verifying changes
 
-`bun test` (44 tests: render stamps, anchor matching, sidecar, style tokens) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a manual poke (`mdnote review README.md`, select text, annotate, edit the file, watch it re-anchor).
+`bun test` (44 tests: render stamps, anchor matching, sidecar, style tokens) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a browser poke — use the `browser-test` skill (drives the real UI headlessly with agent-browser: drag-select, annotate, edit the file, assert sidecar/highlights).
