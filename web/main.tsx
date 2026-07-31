@@ -1,4 +1,4 @@
-import { render } from "preact";
+import { render, type RefObject } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation, Theme } from "../src/types.ts";
 import { ActionButton, isMac, useAction, useActionDispatcher } from "./actions.tsx";
@@ -37,24 +37,21 @@ async function getAnnotations(): Promise<Annotation[]> {
   return ((await res.json()) as { annotations: Annotation[] }).annotations;
 }
 
-async function postAnnotation(body: NewAnnotation): Promise<void> {
-  await fetch(api("/annotations"), {
-    method: "POST",
+async function sendJson(route: string, method: string, body: unknown): Promise<void> {
+  await fetch(api(route), {
+    method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
 }
+
+const postAnnotation = (body: NewAnnotation) => sendJson("/annotations", "POST", body);
+
+const patchAnnotation = (id: string, body: AnnotationPatch) =>
+  sendJson(`/annotations/${encodeURIComponent(id)}`, "PATCH", body);
 
 async function deleteAnnotation(id: string): Promise<void> {
   await fetch(api(`/annotations/${encodeURIComponent(id)}`), { method: "DELETE" });
-}
-
-async function patchAnnotation(id: string, body: AnnotationPatch): Promise<void> {
-  await fetch(api(`/annotations/${encodeURIComponent(id)}`), {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
 }
 
 function agentPrompt(path: string): string {
@@ -91,6 +88,7 @@ const THEME_ICON: Record<Theme, string> = { system: "◐", light: "☀", dark: "
 
 function ThemeToggle() {
   const [mode, setMode] = useState<Theme>(() => window.__MDNOTE_CONFIG__?.theme ?? "dark");
+  const cycle = () => setMode((m) => THEME_NEXT[m]);
 
   useEffect(() => {
     if (mode === "system") {
@@ -100,15 +98,10 @@ function ThemeToggle() {
     }
   }, [mode]);
 
-  useAction("toggle-theme", () => setMode(THEME_NEXT[mode]));
+  useAction("toggle-theme", cycle);
 
   return (
-    <button
-      type="button"
-      class="theme-toggle"
-      title={`Theme: ${mode}`}
-      onClick={() => setMode(THEME_NEXT[mode])}
-    >
+    <button type="button" class="theme-toggle" title={`Theme: ${mode}`} onClick={cycle}>
       {THEME_ICON[mode]}
     </button>
   );
@@ -133,36 +126,22 @@ function formatTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-function App() {
+/** onReload fires before each refetch, so callers can drop state anchored to the old DOM. */
+function useDocSync(onReload: () => void) {
   const [doc, setDoc] = useState<DocResponse | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [pending, setPending] = useState<SelectionAnchor | null>(null);
-  const [openAnn, setOpenAnn] = useState<{ id: string; rect: DOMRect } | null>(null);
-  const [hovered, setHovered] = useState<Element | null>(null);
-  const [focus, setFocus] = useState<{ id: string; tick: number } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<number | null>(null);
-
-  const docRef = useRef<HTMLDivElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const annPopoverRef = useRef<HTMLDivElement>(null);
-  const rangesRef = useRef<{ id: string; range: Range }[]>([]);
-  const hoveredRef = useRef<Element | null>(null);
-  const dismissRef = useRef(false);
-  const draggedRef = useRef(false);
+  const onReloadRef = useRef(onReload);
+  onReloadRef.current = onReload;
 
   const refreshAnnotations = async () => setAnnotations(await getAnnotations());
 
   useEffect(() => {
     const reload = () => {
       const y = window.scrollY;
-      setPending(null);
-      setOpenAnn(null);
-      hoveredRef.current = null;
-      setHovered(null);
+      onReloadRef.current();
       void (async () => {
         setDoc(await getDoc());
-        await refreshAnnotations();
+        setAnnotations(await getAnnotations());
         requestAnimationFrame(() => window.scrollTo({ top: y }));
       })();
     };
@@ -179,6 +158,18 @@ function App() {
     return () => events.close();
   }, []);
 
+  return { doc, annotations, refreshAnnotations };
+}
+
+function useHighlights(
+  docRef: RefObject<HTMLDivElement>,
+  annotations: Annotation[],
+  docHtml: string | undefined,
+  pending: SelectionAnchor | null,
+  focus: { id: string; tick: number } | null,
+) {
+  const rangesRef = useRef<{ id: string; range: Range }[]>([]);
+
   useEffect(() => {
     const container = docRef.current;
     rangesRef.current = [];
@@ -194,7 +185,7 @@ function App() {
     }
     setHighlight("mdnote-open", open);
     setHighlight("mdnote-stale", stale);
-  }, [annotations, doc?.html]);
+  }, [annotations, docHtml]);
 
   useEffect(() => {
     setHighlight("mdnote-pending", pending && !pending.block ? [pending.range] : []);
@@ -213,50 +204,52 @@ function App() {
     };
   }, [focus]);
 
-  const copyPrompt = () => {
-    const path = doc?.path;
-    if (!path) return;
-    void copyText(agentPrompt(path)).then(() => {
-      setCopied(true);
-      if (copiedTimer.current !== null) clearTimeout(copiedTimer.current);
-      copiedTimer.current = window.setTimeout(() => setCopied(false), 2000);
-    });
-  };
+  return rangesRef;
+}
 
-  useAction("copy-prompt", copyPrompt);
-  useActionDispatcher();
+function useDocEvents(args: {
+  docRef: RefObject<HTMLDivElement>;
+  popoverRef: RefObject<HTMLDivElement>;
+  annPopoverRef: RefObject<HTMLDivElement>;
+  setPending: (p: SelectionAnchor | null) => void;
+  setOpenAnn: (a: null) => void;
+  setHovered: (el: Element | null) => void;
+}) {
+  const dismissRef = useRef(false);
+  const draggedRef = useRef(false);
 
   useEffect(() => {
+    const inPopover = (t: EventTarget | null) =>
+      args.popoverRef.current?.contains(t as Node) || args.annPopoverRef.current?.contains(t as Node);
     const onMouseUp = (e: MouseEvent) => {
-      if (popoverRef.current?.contains(e.target as Node)) return;
-      if (annPopoverRef.current?.contains(e.target as Node)) return;
-      const container = docRef.current;
+      if (inPopover(e.target)) return;
+      const container = args.docRef.current;
       const anchor = container ? selectionAnchor(container) : null;
       // Chrome reports a collapsed selection during the click that follows a
       // selection drag, so the click handler can't read it live; record here.
       draggedRef.current = anchor !== null;
-      setPending(anchor);
+      args.setPending(anchor);
     };
     const onMouseDown = (e: MouseEvent) => {
-      if (popoverRef.current?.contains(e.target as Node)) return;
-      if (annPopoverRef.current?.contains(e.target as Node)) return;
-      dismissRef.current = popoverRef.current !== null || annPopoverRef.current !== null;
+      if (inPopover(e.target)) return;
+      dismissRef.current = args.popoverRef.current !== null || args.annPopoverRef.current !== null;
       draggedRef.current = false;
-      setPending(null);
-      setOpenAnn(null);
+      args.setPending(null);
+      args.setOpenAnn(null);
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setPending(null);
-        setOpenAnn(null);
+        args.setPending(null);
+        args.setOpenAnn(null);
       }
     };
+    let current: Element | null = null;
     const onMouseMove = (e: MouseEvent) => {
       const el = (e.target as Element | null)?.closest?.("[data-source-line]") ?? null;
-      const block = el && docRef.current?.contains(el) ? el : null;
-      if (block !== hoveredRef.current) {
-        hoveredRef.current = block;
-        setHovered(block);
+      const block = el && args.docRef.current?.contains(el) ? el : null;
+      if (block !== current) {
+        current = block;
+        args.setHovered(block);
       }
     };
     document.addEventListener("mouseup", onMouseUp);
@@ -270,6 +263,56 @@ function App() {
       document.removeEventListener("mousemove", onMouseMove);
     };
   }, []);
+
+  return { dismissRef, draggedRef };
+}
+
+function useToast(ms: number): [boolean, () => void] {
+  const [on, setOn] = useState(false);
+  const timer = useRef<number | null>(null);
+
+  const show = () => {
+    setOn(true);
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setOn(false), ms);
+  };
+
+  return [on, show];
+}
+
+function App() {
+  const [pending, setPending] = useState<SelectionAnchor | null>(null);
+  const [openAnn, setOpenAnn] = useState<{ id: string; rect: DOMRect } | null>(null);
+  const [hovered, setHovered] = useState<Element | null>(null);
+  const [focus, setFocus] = useState<{ id: string; tick: number } | null>(null);
+  const [copied, showCopied] = useToast(2000);
+
+  const docRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const annPopoverRef = useRef<HTMLDivElement>(null);
+
+  const { doc, annotations, refreshAnnotations } = useDocSync(() => {
+    setPending(null);
+    setOpenAnn(null);
+  });
+  const rangesRef = useHighlights(docRef, annotations, doc?.html, pending, focus);
+  const { dismissRef, draggedRef } = useDocEvents({
+    docRef,
+    popoverRef,
+    annPopoverRef,
+    setPending,
+    setOpenAnn,
+    setHovered,
+  });
+
+  const copyPrompt = () => {
+    const path = doc?.path;
+    if (!path) return;
+    void copyText(agentPrompt(path)).then(showCopied);
+  };
+
+  useAction("copy-prompt", copyPrompt);
+  useActionDispatcher();
 
   const submit = (body: NewAnnotation) => {
     setPending(null);
@@ -293,7 +336,7 @@ function App() {
     if (anchor) setPending(anchor);
   };
 
-  useAction("annotate-block", () => annotateBlock(hoveredRef.current));
+  useAction("annotate-block", () => annotateBlock(hovered));
   useAction("delete-annotation", () => {
     if (openAnn) remove(openAnn.id);
   });
@@ -330,7 +373,8 @@ function App() {
   };
 
   const blockRect = pending?.block ? blockBox(pending.block) : null;
-  const hoverRect = hovered ? blockBox(hovered) : null;
+  const hoverRect = hovered?.isConnected ? blockBox(hovered) : null;
+  const openAnnotation = openAnn ? annotations.find((a) => a.id === openAnn.id) : undefined;
 
   return (
     <>
@@ -371,13 +415,9 @@ function App() {
         onGlobal={(note) => submit({ lineRange: null, anchorText: null, note })}
       />
       {copied && <div class="toast">Copied agent prompt</div>}
-      {openAnn &&
-        (() => {
-          const a = annotations.find((x) => x.id === openAnn.id);
-          return a ? (
-            <AnnotationPopover popoverRef={annPopoverRef} rect={openAnn.rect} annotation={a} />
-          ) : null;
-        })()}
+      {openAnn && openAnnotation && (
+        <AnnotationPopover popoverRef={annPopoverRef} rect={openAnn.rect} annotation={openAnnotation} />
+      )}
       {pending && (
         <Popover
           popoverRef={popoverRef}
