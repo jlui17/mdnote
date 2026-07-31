@@ -284,6 +284,9 @@ function App() {
   };
 
   useAction("annotate-block", () => annotateBlock(hoveredRef.current));
+  useAction("delete-annotation", () => {
+    if (openAnn) remove(openAnn.id);
+  });
 
   const onDocClick = (e: MouseEvent) => {
     if (dismissRef.current || draggedRef.current) {
@@ -362,12 +365,7 @@ function App() {
         (() => {
           const a = annotations.find((x) => x.id === openAnn.id);
           return a ? (
-            <AnnotationPopover
-              popoverRef={annPopoverRef}
-              rect={openAnn.rect}
-              annotation={a}
-              onDelete={() => remove(a.id)}
-            />
+            <AnnotationPopover popoverRef={annPopoverRef} rect={openAnn.rect} annotation={a} />
           ) : null;
         })()}
       {pending && (
@@ -577,7 +575,6 @@ function AnnotationPopover(props: {
   popoverRef: { current: HTMLDivElement | null };
   rect: DOMRect;
   annotation: Annotation;
-  onDelete: () => void;
 }) {
   const pos = usePopoverPosition(props.popoverRef, props.rect);
 
@@ -585,9 +582,7 @@ function AnnotationPopover(props: {
     <div class="popover" ref={props.popoverRef} style={{ left: `${pos.left}px`, top: `${pos.top}px` }}>
       {props.annotation.note && <p class="popover-note">{props.annotation.note}</p>}
       <div class="row">
-        <button type="button" onClick={props.onDelete}>
-          Delete
-        </button>
+        <ActionButton id="delete-annotation" />
       </div>
     </div>
   );

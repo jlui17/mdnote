@@ -42,10 +42,20 @@ test("bindingFor reads the resolved map, defaulting to the catalog", () => {
   expect(bindingFor("copy-prompt")).toEqual(parseKeybinding("mod+shift+c"));
   expect(bindingFor("toggle-theme")).toBeNull();
   expect(
-    bindingFor("copy-prompt", { "copy-prompt": "mod+p", "toggle-theme": null, "annotate-block": "c" }),
+    bindingFor("copy-prompt", {
+      "copy-prompt": "mod+p",
+      "toggle-theme": null,
+      "annotate-block": "c",
+      "delete-annotation": "d",
+    }),
   ).toEqual(parseKeybinding("mod+p"));
   expect(
-    bindingFor("copy-prompt", { "copy-prompt": null, "toggle-theme": "mod+t", "annotate-block": "c" }),
+    bindingFor("copy-prompt", {
+      "copy-prompt": null,
+      "toggle-theme": "mod+t",
+      "annotate-block": "c",
+      "delete-annotation": "d",
+    }),
   ).toBeNull();
 });
 
