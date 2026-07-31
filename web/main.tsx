@@ -324,7 +324,7 @@ function useBlockBoxes(
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  return boxes;
+  return { boxes, blocksRef };
 }
 
 function useDocEvents(args: {
@@ -335,6 +335,7 @@ function useDocEvents(args: {
   setOpenAnn: (a: null) => void;
   setHovered: (el: Element | null) => void;
   pinnedRef: { current: boolean };
+  openIfBlockAnnotatedRef: { current: (block: Element) => boolean };
 }) {
   const dismissRef = useRef(false);
   const draggedRef = useRef(false);
@@ -349,6 +350,13 @@ function useDocEvents(args: {
       // Chrome reports a collapsed selection during the click that follows a
       // selection drag, so the click handler can't read it live; record here.
       draggedRef.current = anchor !== null;
+      // Ticket 02's whole-block drag promotion can land on a block that already
+      // has a note; open it pinned instead of stacking a duplicate.
+      if (anchor?.block && args.openIfBlockAnnotatedRef.current(anchor.block)) {
+        window.getSelection()?.removeAllRanges();
+        args.setPending(null);
+        return;
+      }
       args.setPending(anchor);
     };
     const onMouseDown = (e: MouseEvent) => {
@@ -477,13 +485,38 @@ function App() {
     setOpenAnn(null);
   });
   const rangesRef = useHighlights(docRef, annotations, doc?.html, pending, focus);
-  const blockBoxes = useBlockBoxes(docRef, annotations, doc?.html);
+  const { boxes: blockBoxes, blocksRef: blockAnnotationsRef } = useBlockBoxes(
+    docRef,
+    annotations,
+    doc?.html,
+  );
   const pinnedRef = useRef(false);
   pinnedRef.current = openAnn?.pinned ?? false;
   const formOpenRef = useRef(false);
   formOpenRef.current = pending !== null;
   const boxesRef = useRef(blockBoxes);
   boxesRef.current = blockBoxes;
+
+  const focusAnnotation = (id: string) => setFocus((f) => ({ id, tick: (f?.tick ?? 0) + 1 }));
+
+  /** True (and pops the pinned popover) when `block` already carries a `block: true`
+   *  annotation — the duplicate-stacking guard shared by click, `c`, and drag promotion. */
+  const openIfBlockAnnotated = (block: Element): boolean => {
+    const existingId = blockAnnotationsRef.current.find((b) => b.el === block)?.id;
+    if (!existingId) return false;
+    focusAnnotation(existingId);
+    const box = blockBoxes.find((b) => b.id === existingId)?.box;
+    setOpenAnn({
+      id: existingId,
+      rect: box ? viewportRect(box) : block.getBoundingClientRect(),
+      editing: false,
+      pinned: true,
+    });
+    return true;
+  };
+  const openIfBlockAnnotatedRef = useRef(openIfBlockAnnotated);
+  openIfBlockAnnotatedRef.current = openIfBlockAnnotated;
+
   const { dismissRef, draggedRef } = useDocEvents({
     docRef,
     popoverRef,
@@ -492,6 +525,7 @@ function App() {
     setOpenAnn,
     setHovered,
     pinnedRef,
+    openIfBlockAnnotatedRef,
   });
   const hoverRef = useHoverPreview({
     rangesRef,
@@ -536,10 +570,9 @@ function App() {
   const edit = (id: string, note: string) =>
     void patchAnnotation(id, { note }).then(refreshAnnotations);
 
-  const focusAnnotation = (id: string) => setFocus((f) => ({ id, tick: (f?.tick ?? 0) + 1 }));
-
   const annotateBlock = (block: Element | null) => {
     if (!block || !docRef.current?.contains(block)) return;
+    if (openIfBlockAnnotated(block)) return;
     const anchor = blockAnchor(block);
     if (anchor) setPending(anchor);
   };
