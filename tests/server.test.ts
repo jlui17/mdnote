@@ -231,6 +231,27 @@ describe("registry persistence", () => {
   });
 });
 
+describe("SSE keepalive", () => {
+  test("an idle client receives periodic pings", async () => {
+    const prev = process.env.MDNOTE_PING_MS;
+    process.env.MDNOTE_PING_MS = "50";
+    const s = await startServer({ file, host: "127.0.0.1", port: 0 });
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${s.port}/api/events?file=${encodeURIComponent(file)}`,
+      );
+      const reader = res.body!.getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toContain(": connected");
+      expect(new TextDecoder().decode((await reader.read()).value)).toContain(": ping");
+      await reader.cancel();
+    } finally {
+      if (prev === undefined) delete process.env.MDNOTE_PING_MS;
+      else process.env.MDNOTE_PING_MS = prev;
+      await s.stop();
+    }
+  });
+});
+
 describe("idle shutdown", () => {
   test("the clock runs from boot, a connected client cancels it, disconnecting restarts it", async () => {
     const prev = process.env.MDNOTE_IDLE_TIMEOUT_MS;

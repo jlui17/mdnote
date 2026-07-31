@@ -13,6 +13,9 @@ const JSON_HEADERS = { "content-type": "application/json" };
 
 const IDLE_TIMEOUT_MS = 5 * 60_000;
 
+/** Under Bun.serve's 10s idle limit, which closes otherwise-silent SSE streams. */
+const PING_MS = 6_000;
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
@@ -197,6 +200,17 @@ export async function startServer(opts: {
   register(initial);
   resetIdleClock();
 
+  const pingTimer = setInterval(() => {
+    for (const state of files.values())
+      for (const c of state.clients) {
+        try {
+          c.enqueue(encoder.encode(": ping\n\n"));
+        } catch {
+          state.clients.delete(c);
+        }
+      }
+  }, Number(process.env.MDNOTE_PING_MS) || PING_MS);
+
   const server = Bun.serve({
     hostname: opts.host,
     port: opts.port,
@@ -375,6 +389,7 @@ export async function startServer(opts: {
     port,
     watchedDirs: () => [...dirWatchers.keys()],
     stop() {
+      clearInterval(pingTimer);
       if (idleTimer) clearTimeout(idleTimer);
       for (const entry of dirWatchers.values()) entry.watcher.close();
       dirWatchers.clear();

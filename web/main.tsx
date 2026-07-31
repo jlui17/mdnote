@@ -154,13 +154,7 @@ function App() {
   const refreshAnnotations = async () => setAnnotations(await getAnnotations());
 
   useEffect(() => {
-    void (async () => {
-      setDoc(await getDoc());
-      await refreshAnnotations();
-    })();
-
-    const events = new EventSource(api("/events"));
-    events.addEventListener("update", () => {
+    const reload = () => {
       const y = window.scrollY;
       setPending(null);
       setOpenAnn(null);
@@ -171,6 +165,16 @@ function App() {
         await refreshAnnotations();
         requestAnimationFrame(() => window.scrollTo({ top: y }));
       })();
+    };
+
+    reload();
+
+    let firstOpen = true;
+    const events = new EventSource(api("/events"));
+    events.addEventListener("update", reload);
+    events.addEventListener("open", () => {
+      if (firstOpen) firstOpen = false;
+      else reload();
     });
     return () => events.close();
   }, []);
