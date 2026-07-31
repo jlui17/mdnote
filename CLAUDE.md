@@ -4,7 +4,7 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 
 ## Map (runtime order)
 
-- `src/cli.ts` — entry (`review` / `comments` / `clear`), lock-file server discovery. `review` dynamic-imports `server.ts` so `comments`/`clear` keep working even when the server is broken.
+- `src/cli.ts` — entry (`mdnote <file.md>` / `comments` / `clear`; any non-subcommand argv is a review invocation), lock-file server discovery. Review dynamic-imports `server.ts` so `comments`/`clear` keep working even when the server is broken.
 - `src/config.ts` — reads `~/.config/mdnote/settings.json` (`$XDG_CONFIG_HOME` honored), validates warn-and-drop per key, merges over defaults into a `ResolvedConfig`.
 - `src/actions.ts` — pure action catalog (`ActionId`s, labels, default keybindings) and keybinding spec parsing; shared by `config.ts` and the frontend.
 - `src/render.ts` — markdown-it with a rule stamping `data-source-line="start-end"` on block elements.
@@ -29,7 +29,7 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 
 ## Hiccups
 
-- **Frontend JS bundles once at server startup** (`Bun.build` on `web/main.tsx`). Restart `mdnote review` to see `web/` TS changes; `style.css` is read per request, so CSS changes only need a page reload.
+- **Frontend JS bundles once at server startup** (`Bun.build` on `web/main.tsx`). Restart the server (`mdnote <file.md>`) to see `web/` TS changes; `style.css` is read per request, so CSS changes only need a page reload.
 - **The shebang on `src/cli.ts` is load-bearing.** `bun link` symlinks the bin straight to the file; without `#!/usr/bin/env bun` the shell executes it as a shell script.
 - **The watcher is `fs.watch` on the parent directory, filtered by basename** (50ms debounce), not a per-file watch — editors and agents replace files by rename, which per-file watches lose track of.
 - **The lock file (`<file>.mdnote.lock`) can be stale.** CLI discovery checks the recorded pid is alive and gives the API ~300ms before falling back to reading the sidecar directly; treat the sidecar as the source of truth, the API as an optimization.

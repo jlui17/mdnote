@@ -12,7 +12,7 @@ Annotations live in a sidecar next to the file (`<file>.mdnote.json`), created v
 If the user hasn't already run it (ask if unclear), start the server:
 
 ```
-mdnote review <file.md>
+mdnote <file.md>
 ```
 
 Run it backgrounded or in another terminal — it serves the page and opens the browser, and keeps running for live reload. Optional `--host`/`--port` if the user wants it bound elsewhere; default is fine for local use.

@@ -73,8 +73,8 @@ function parseFlags(args: string[]): { positional: string[]; flags: Record<strin
 async function cmdReview(args: string[]) {
   const { positional, flags } = parseFlags(args);
   const file = positional[0];
-  if (!file) die("review: missing <file.md>");
-  if (!existsSync(file)) die(`review: no such file: ${file}`);
+  if (!file) die("usage: mdnote <file.md> [--host H] [--port P]");
+  if (!existsSync(file)) die(`mdnote: no such file: ${file}`);
 
   const host = typeof flags.host === "string" ? flags.host : "127.0.0.1";
   const port = typeof flags.port === "string" ? Number(flags.port) : 4820;
@@ -168,9 +168,6 @@ async function cmdClear(args: string[]) {
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   switch (cmd) {
-    case "review":
-      await cmdReview(rest);
-      break;
     case "comments":
       await cmdComments(rest);
       break;
@@ -178,7 +175,7 @@ async function main() {
       await cmdClear(rest);
       break;
     default:
-      die(`unknown command: ${cmd ?? "<none>"}`);
+      await cmdReview(process.argv.slice(2));
   }
 }
 

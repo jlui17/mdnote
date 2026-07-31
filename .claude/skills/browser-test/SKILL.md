@@ -9,17 +9,17 @@ Drives the real server + frontend with the `agent-browser` CLI (headless Chrome 
 
 ## 1. Start a server (no browser popup)
 
-`mdnote review` spawns `open` when host is `127.0.0.1`, which pops the user's real browser. Pass `--host 0.0.0.0` to skip that; still connect via 127.0.0.1.
+`mdnote <file.md>` spawns `open` when host is `127.0.0.1`, which pops the user's real browser. Pass `--host 0.0.0.0` to skip that; still connect via 127.0.0.1.
 
 Always test on a scratch copy, never a repo file (annotating writes `<file>.mdnote.json` and `.mdnote.lock` next to it):
 
 ```bash
 F=$SCRATCHPAD/test.md   # write known content here first
-bun src/cli.ts review "$F" --host 0.0.0.0 --port 4477   # run_in_background
+bun src/cli.ts "$F" --host 0.0.0.0 --port 4477   # run_in_background
 for i in $(seq 1 20); do curl -sf http://127.0.0.1:4477/ -o /dev/null && break; sleep 0.3; done
 ```
 
-The document URL is `http://127.0.0.1:4477/<absolute path to $F>` (`review` prints it; `/` 302-redirects there). Always pass an explicit `--port` — the default is 4820 and a user's real server may hold it.
+The document URL is `http://127.0.0.1:4477/<absolute path to $F>` (the CLI prints it; `/` 302-redirects there). Always pass an explicit `--port` — the default is 4820 and a user's real server may hold it.
 
 The frontend bundles once at server startup: after editing `web/` TS, restart the server. `style.css` is read per request, so CSS changes only need `agent-browser reload`.
 
