@@ -88,11 +88,16 @@ export function useActionDispatcher(): void {
   }, []);
 }
 
-export function ActionButton(props: { id: ActionId; class?: string }) {
+export function ActionButton(props: { id: ActionId; class?: string; label?: string }) {
   const kb = bindingFor(props.id);
   return (
-    <button type="button" class={props.class} onClick={() => runAction(props.id)}>
-      {ACTIONS[props.id].label}
+    <button
+      type="button"
+      class={props.class}
+      title={props.label ? ACTIONS[props.id].label : undefined}
+      onClick={() => runAction(props.id)}
+    >
+      {props.label ?? ACTIONS[props.id].label}
       {kb && <kbd>{formatKeybinding(kb)}</kbd>}
     </button>
   );
