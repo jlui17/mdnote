@@ -5,7 +5,8 @@ export type ActionId =
   | "annotate-block"
   | "annotate-document"
   | "edit-annotation"
-  | "delete-annotation";
+  | "delete-annotation"
+  | "show-help";
 
 export const ACTIONS: Record<ActionId, { label: string; keybinding?: string }> = {
   "copy-prompt": { label: "Copy review prompt", keybinding: "mod+shift+c" },
@@ -15,6 +16,8 @@ export const ACTIONS: Record<ActionId, { label: string; keybinding?: string }> =
   "annotate-document": { label: "Add general note", keybinding: "shift+c" },
   "edit-annotation": { label: "Edit note", keybinding: "e" },
   "delete-annotation": { label: "Delete annotation", keybinding: "d" },
+  // "?" arrives as a shifted key event, so the spec names both.
+  "show-help": { label: "Show interaction guide", keybinding: "shift+?" },
 };
 
 export function defaultKeybindings(): Record<ActionId, string | null> {

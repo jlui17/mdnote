@@ -39,6 +39,7 @@ test("missing file yields defaults: dark theme, catalog keybindings", () => {
     "annotate-document": "shift+c",
     "edit-annotation": "e",
     "delete-annotation": "d",
+    "show-help": "shift+?",
   });
 });
 
@@ -74,6 +75,7 @@ test("invalid entries warn and fall back per-key", () => {
     "annotate-document": "shift+c",
     "edit-annotation": "e",
     "delete-annotation": "d",
+    "show-help": "shift+?",
   });
 });
 

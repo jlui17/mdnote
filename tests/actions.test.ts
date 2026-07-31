@@ -50,6 +50,7 @@ test("bindingFor reads the resolved map, defaulting to the catalog", () => {
       "annotate-document": "shift+c",
       "edit-annotation": "e",
       "delete-annotation": "d",
+      "show-help": "shift+?",
     }),
   ).toEqual(parseKeybinding("mod+p"));
   expect(
@@ -61,6 +62,7 @@ test("bindingFor reads the resolved map, defaulting to the catalog", () => {
       "annotate-document": "shift+c",
       "edit-annotation": "e",
       "delete-annotation": "d",
+      "show-help": "shift+?",
     }),
   ).toBeNull();
 });
