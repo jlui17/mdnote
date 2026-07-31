@@ -11,17 +11,17 @@ Drives the real server + frontend with the `agent-browser` CLI (headless Chrome 
 
 `mdnote <file.md>` spawns `open` when host is `127.0.0.1`, which pops the user's real browser. Pass `--host 0.0.0.0` to skip that; still connect via 127.0.0.1.
 
-Always test on a scratch copy, never a repo file (annotating writes `<file>.mdnote.json` and `.mdnote.lock` next to it):
+Always test on a scratch copy, never a repo file (annotating writes `<file>.mdnote.json` next to it):
 
 ```bash
 F=$SCRATCHPAD/test.md   # write known content here first
-bun src/cli.ts "$F" --host 0.0.0.0 --port 4477   # run_in_background
-for i in $(seq 1 20); do curl -sf http://127.0.0.1:4477/ -o /dev/null && break; sleep 0.3; done
+export XDG_STATE_HOME=$SCRATCHPAD/state   # your own lock, so you don't attach to (or stop) the user's server
+bun src/cli.ts "$F" --host 0.0.0.0 --port 4477   # detaches and exits once the server answers
 ```
 
-The document URL is `http://127.0.0.1:4477/<absolute path to $F>` (the CLI prints it; `/` 302-redirects there). Always pass an explicit `--port` — the default is 4820 and a user's real server may hold it.
+The document URL is `http://127.0.0.1:4477/<absolute path to $F>` (the CLI prints it; `/` 302-redirects there). Always pass an explicit `--port` — the default is 4820 and a user's real server may hold it. Re-run the `export` in every Bash call that talks to your server.
 
-The frontend bundles once at server startup: after editing `web/` TS, restart the server. `style.css` is read per request, so CSS changes only need `agent-browser reload`.
+The frontend bundles once at server startup: after editing `web/` TS, restart the server (`bun src/cli.ts stop`, then the start command again). `style.css` is read per request, so CSS changes only need `agent-browser reload`.
 
 ## 2. One browser session per worktree
 
@@ -114,6 +114,6 @@ Only source-file changes push SSE. Annotation CRUD through the API or CLI (`mdno
 
 ```bash
 agent-browser close
-kill <server pid>       # removes the .mdnote.lock via the CLI's exit handler
+XDG_STATE_HOME=$SCRATCHPAD/state bun src/cli.ts stop
 rm -f "$F" "$F.mdnote.json"
 ```

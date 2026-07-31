@@ -11,6 +11,13 @@ export interface ResolvedConfig {
   keybindings: Record<ActionId, string | null>;
 }
 
+/** Contents of the global lock naming the running server. */
+export interface ServerLock {
+  host: string;
+  port: number;
+  pid: number;
+}
+
 export interface Annotation {
   id: string;
   /** 1-based inclusive source lines. Null for a doc-wide note. */

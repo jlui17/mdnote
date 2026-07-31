@@ -1,41 +1,25 @@
 #!/usr/bin/env bun
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { readLiveLock, removeLock, writeLock } from "./lock.ts";
 import { readSidecar, writeSidecar } from "./store.ts";
-import type { Annotation } from "./types.ts";
+import type { Annotation, ServerLock } from "./types.ts";
+
+const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_PORT = 4820;
 
 function die(msg: string): never {
   console.error(msg);
   process.exit(1);
 }
 
-function lockPath(file: string): string {
-  return `${file}.mdnote.lock`;
+function origin(lock: ServerLock): string {
+  return `http://${lock.host}:${lock.port}`;
 }
 
-interface Lock {
-  port: number;
-  host: string;
-  pid: number;
-}
-
-function readLiveLock(file: string): Lock | null {
-  let lock: Lock;
-  try {
-    lock = JSON.parse(readFileSync(lockPath(file), "utf8"));
-  } catch {
-    return null;
-  }
-  try {
-    process.kill(lock.pid, 0);
-  } catch {
-    return null;
-  }
-  return lock;
-}
-
-function apiUrl(lock: Lock, file: string, route: string): string {
-  return `http://127.0.0.1:${lock.port}/api${route}?file=${encodeURIComponent(resolve(file))}`;
+function apiUrl(lock: ServerLock, file: string, route: string): string {
+  return `${origin(lock)}/api${route}?file=${encodeURIComponent(resolve(file))}`;
 }
 
 async function fetchWithTimeout(url: string, init?: RequestInit, ms = 300): Promise<Response> {
@@ -70,38 +54,94 @@ function parseFlags(args: string[]): { positional: string[]; flags: Record<strin
   return { positional, flags };
 }
 
-async function cmdReview(args: string[]) {
-  const { positional, flags } = parseFlags(args);
-  const file = positional[0];
-  if (!file) die("usage: mdnote <file.md> [--host H] [--port P]");
-  if (!existsSync(file)) die(`mdnote: no such file: ${file}`);
+/** Registers `file` with the running server, returning its document URL, or null if the server didn't answer. */
+async function openOnServer(lock: ServerLock, file: string): Promise<string | null> {
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(apiUrl(lock, file, "/open"), { method: "POST" }, 2000);
+  } catch {
+    return null;
+  }
+  if (res.status === 404) die(`mdnote: server refused ${file}: not a servable markdown file`);
+  if (!res.ok) return null;
+  const body = (await res.json()) as { url: string };
+  return origin(lock) + body.url;
+}
 
-  const host = typeof flags.host === "string" ? flags.host : "127.0.0.1";
-  const port = typeof flags.port === "string" ? Number(flags.port) : 4820;
+async function spawnServer(file: string, host: string, port: number): Promise<ServerLock> {
+  const child = spawn(
+    process.execPath,
+    [import.meta.path, file, "--serve", "--host", host, "--port", String(port)],
+    { detached: true, stdio: "ignore" },
+  );
+  child.unref();
 
+  for (let i = 0; i < 50; i++) {
+    await Bun.sleep(100);
+    const live = readLiveLock();
+    if (live) return live;
+  }
+  die(`mdnote: server did not start on ${host}:${port}`);
+}
+
+async function cmdServe(file: string, host: string, port: number) {
   const { startServer } = await import("./server.ts");
   const server = await startServer({ file, host, port });
 
-  writeFileSync(lockPath(file), JSON.stringify({ port: server.port, host, pid: process.pid }));
-  const cleanup = () => {
-    try {
-      unlinkSync(lockPath(file));
-    } catch {}
-  };
-  process.on("exit", cleanup);
-  process.on("SIGINT", () => {
-    cleanup();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    cleanup();
-    process.exit(0);
-  });
-
-  console.log(server.url);
-  if (host === "127.0.0.1" || host === "localhost") {
-    Bun.spawn(["open", server.url]);
+  writeLock({ host, port: server.port, pid: process.pid });
+  process.on("exit", () => removeLock());
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => {
+      removeLock();
+      process.exit(0);
+    });
   }
+}
+
+async function cmdReview(args: string[]) {
+  const { positional, flags } = parseFlags(args);
+  const arg = positional[0];
+  if (!arg) die("usage: mdnote <file.md> [--host H] [--port P]");
+  if (!existsSync(arg)) die(`mdnote: no such file: ${arg}`);
+  const file = resolve(arg);
+
+  const host = typeof flags.host === "string" ? flags.host : DEFAULT_HOST;
+  const port = typeof flags.port === "string" ? Number(flags.port) : DEFAULT_PORT;
+
+  if (flags.serve === true) {
+    await cmdServe(file, host, port);
+    return;
+  }
+
+  let lock = readLiveLock();
+  if (lock) {
+    if (typeof flags.host === "string" && flags.host !== lock.host)
+      die(`mdnote: server already running on ${lock.host}:${lock.port}; run \`mdnote stop\` to change --host`);
+    if (typeof flags.port === "string" && port !== lock.port)
+      die(`mdnote: server already running on ${lock.host}:${lock.port}; run \`mdnote stop\` to change --port`);
+  } else {
+    lock = await spawnServer(file, host, port);
+  }
+
+  const url = await openOnServer(lock, file);
+  if (!url) die(`mdnote: server at ${origin(lock)} is not responding; run \`mdnote stop\``);
+
+  console.log(url);
+  if (lock.host === DEFAULT_HOST || lock.host === "localhost") Bun.spawn(["open", url]);
+}
+
+function cmdStop() {
+  const lock = readLiveLock();
+  if (!lock) {
+    removeLock();
+    console.log("mdnote: no server running");
+    return;
+  }
+  try {
+    process.kill(lock.pid, "SIGTERM");
+  } catch {}
+  removeLock();
+  console.log(`mdnote: stopped server on ${lock.host}:${lock.port}`);
 }
 
 async function cmdComments(args: string[]) {
@@ -110,18 +150,15 @@ async function cmdComments(args: string[]) {
   if (!file) die("comments: missing <file.md>");
   if (!existsSync(file)) die(`comments: no such file: ${file}`);
 
-  let annotations: Annotation[];
-  const lock = readLiveLock(file);
+  let annotations: Annotation[] | null = null;
+  const lock = readLiveLock();
   if (lock) {
     try {
       const res = await fetchWithTimeout(apiUrl(lock, file, "/annotations"));
-      annotations = ((await res.json()) as { annotations: Annotation[] }).annotations;
-    } catch {
-      annotations = readSidecar(file).annotations;
-    }
-  } else {
-    annotations = readSidecar(file).annotations;
+      if (res.ok) annotations = ((await res.json()) as { annotations: Annotation[] }).annotations;
+    } catch {}
   }
+  annotations ??= readSidecar(file).annotations;
 
   if (flags.json) {
     console.log(JSON.stringify({ file, annotations }));
@@ -144,17 +181,21 @@ async function cmdClear(args: string[]) {
   if (!existsSync(file)) die(`clear: no such file: ${file}`);
 
   const ids = typeof flags.ids === "string" ? flags.ids.split(",").filter(Boolean) : undefined;
-  const lock = readLiveLock(file);
+  const lock = readLiveLock();
   if (lock) {
     try {
+      let ok = true;
       if (ids) {
         for (const id of ids) {
-          await fetchWithTimeout(apiUrl(lock, file, `/annotations/${id}`), { method: "DELETE" });
+          const res = await fetchWithTimeout(apiUrl(lock, file, `/annotations/${id}`), {
+            method: "DELETE",
+          });
+          ok = ok && res.ok;
         }
       } else {
-        await fetchWithTimeout(apiUrl(lock, file, "/annotations"), { method: "DELETE" });
+        ok = (await fetchWithTimeout(apiUrl(lock, file, "/annotations"), { method: "DELETE" })).ok;
       }
-      return;
+      if (ok) return;
     } catch {
       // fall through to sidecar
     }
@@ -173,6 +214,9 @@ async function main() {
       break;
     case "clear":
       await cmdClear(rest);
+      break;
+    case "stop":
+      cmdStop();
       break;
     default:
       await cmdReview(process.argv.slice(2));

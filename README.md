@@ -17,7 +17,7 @@ bun link          # puts `mdnote` on your PATH (needs ~/.bun/bin in PATH)
 mdnote notes.md
 ```
 
-The browser opens on the rendered doc. Highlight a span and type a note in the popover — "make this punchier", "remove this paragraph" — and hit ⌘↩ (Ctrl+Enter elsewhere) or the Add button (or click "Add general note" for a doc-wide instruction not tied to a span). To annotate a whole block (paragraph, heading, list item, code fence), hover it — an accent bar marks the target — and click it or press `c`; hovering a list or blockquote's own gutter targets the whole container. Clicking annotated text jumps to its note in the sidebar; the ✎ button (or double-clicking the note) edits it in place.
+The browser opens on the rendered doc. One background server per machine serves every file you open this way — the command exits right after printing the URL, and `mdnote stop` shuts the server down. Highlight a span and type a note in the popover — "make this punchier", "remove this paragraph" — and hit ⌘↩ (Ctrl+Enter elsewhere) or the Add button (or click "Add general note" for a doc-wide instruction not tied to a span). To annotate a whole block (paragraph, heading, list item, code fence), hover it — an accent bar marks the target — and click it or press `c`; hovering a list or blockquote's own gutter targets the whole container. Clicking annotated text jumps to its note in the sidebar; the ✎ button (or double-clicking the note) edits it in place.
 
 The page opens in dark mode (or whatever `theme` you set in [Settings](#settings)); the ◐/☀/☾ button in the sidebar switches it for the session.
 
@@ -84,11 +84,12 @@ The server binds `127.0.0.1:4820` by default. Reviewing a file on a VM or remote
 mdnote notes.md --host 0.0.0.0 --port 7777
 ```
 
-Open `http://<vm-ip>:7777/<absolute path to notes.md>` (the exact URL is printed) from anywhere that can reach the host. Nothing in the page assumes the browser and server share a machine; securing the port (firewall, tailscale, ssh tunnel) is up to you.
+The bind flags take effect on a cold start, so `mdnote stop` first if a loopback server is already running. Open `http://<vm-ip>:7777/<absolute path to notes.md>` (the exact URL is printed) from anywhere that can reach the host. Nothing in the page assumes the browser and server share a machine; securing the port (firewall, tailscale, ssh tunnel) is up to you.
 
 ## CLI reference
 
-- **`mdnote <file.md> [--host H] [--port P]`** — starts the server and opens the browser (loopback only). Defaults to `127.0.0.1:4820`; the document lives at the file's absolute path on that port.
+- **`mdnote <file.md> [--host H] [--port P]`** — opens the file in the browser (loopback only) and exits, starting the background server first if none is running. Defaults to `127.0.0.1:4820`; the document lives at the file's absolute path on that port. `--host`/`--port` apply to a cold start; passing either with values that disagree with the running server is an error telling you to `mdnote stop` first.
+- **`mdnote stop`** — stops the background server.
 - **`mdnote comments <file.md> [--json]`** — lists annotations. `--json` prints `{file, annotations}`; without it, a human-readable list.
 - **`mdnote clear <file.md> [--ids ID[,ID...]]`** — clears the listed annotations by `--ids` (comma-separated), or all annotations if omitted.
 
