@@ -239,6 +239,33 @@ body {
   border-radius: var(--radius);
 }
 
+/* --- file index --------------------------------------------------------- */
+
+.index {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+}
+
+.index h1 {
+  font-size: 1.4rem;
+  margin: 0 0 1rem;
+}
+
+.index ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.index li {
+  margin: 0.4em 0;
+}
+
+.index a {
+  color: var(--accent);
+}
+
 /* --- highlights -------------------------------------------------------- */
 
 ::highlight(mdnote-open) {

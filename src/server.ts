@@ -29,6 +29,38 @@ export function isMarkdownPath(file: string): boolean {
   return ext === ".md" || ext === ".markdown";
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+function renderIndex(paths: string[]): string {
+  const items = [...paths]
+    .sort()
+    .map((f) => `<li><a href="${escapeHtml(pathToUrl(f))}">${escapeHtml(f)}</a></li>`)
+    .join("\n");
+  const config = JSON.stringify(loadConfig()).replace(/</g, "\\u003c");
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mdnote</title>
+    <script>
+      const config = ${config};
+      if (config.theme === "light" || config.theme === "dark") document.documentElement.dataset.theme = config.theme;
+    </script>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="index">
+      <h1>mdnote</h1>
+      <ul>${items}</ul>
+    </div>
+  </body>
+</html>
+`;
+}
+
 function servable(file: string): boolean {
   return isMarkdownPath(file) && existsSync(file);
 }
@@ -155,6 +187,11 @@ export async function startServer(opts: { file: string; host: string; port: numb
         const route = path.slice("/api".length);
         let qfile = url.searchParams.get("file");
 
+        if (route === "/files") {
+          if (req.method !== "GET") return new Response("not found", { status: 404 });
+          return json({ files: [...files.keys()].map((f) => ({ path: f, url: pathToUrl(f) })) });
+        }
+
         if (route === "/open") {
           if (req.method !== "POST") return new Response("not found", { status: 404 });
           if (!qfile) {
@@ -186,7 +223,9 @@ export async function startServer(opts: { file: string; host: string; port: numb
       if (req.method !== "GET") return new Response("not found", { status: 404 });
 
       if (docPath === "/")
-        return new Response(null, { status: 302, headers: { location: pathToUrl(initial) } });
+        return new Response(renderIndex([...files.keys()]), {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
 
       if (!files.has(docPath)) {
         if (!servable(docPath)) return new Response("not found", { status: 404 });

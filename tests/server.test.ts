@@ -34,10 +34,11 @@ describe("path-as-URL addressing", () => {
     expect(await res.text()).toContain("__MDNOTE_CONFIG__");
   });
 
-  test("GET / redirects to the file's path", async () => {
-    const res = await fetch(base + "/", { redirect: "manual" });
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(pathToUrl(file));
+  test("GET / renders an index linking to the file's path", async () => {
+    const res = await fetch(base + "/");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.text()).toContain(`href="${pathToUrl(file)}"`);
   });
 
   test("GET an unknown path 404s", async () => {
@@ -130,6 +131,28 @@ describe("registry, /open and auto-register", () => {
       });
       expect(res.status).toBe(404);
     }
+  });
+});
+
+describe("index and /api/files", () => {
+  test("GET / lists every registered file as a link", async () => {
+    const second = join(dir, "listed.md");
+    writeFileSync(second, "# Listed\n");
+    await fetch(base + pathToUrl(second));
+
+    const html = await (await fetch(base + "/")).text();
+    expect(html).toContain(`href="${pathToUrl(file)}"`);
+    expect(html).toContain(`href="${pathToUrl(second)}"`);
+
+    const linked = await fetch(base + pathToUrl(second));
+    expect(linked.status).toBe(200);
+  });
+
+  test("GET /api/files returns the registered files", async () => {
+    const res = await fetch(`${base}/api/files`);
+    expect(res.status).toBe(200);
+    const { files } = (await res.json()) as { files: { path: string; url: string }[] };
+    expect(files.map((f) => f.path)).toContain(file);
   });
 });
 

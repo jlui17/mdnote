@@ -101,12 +101,12 @@ reporting plainly when no server is running.
 
 **Blocked by:** 03.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] With two files open, `/` shows both as clickable links to their document URLs
-- [ ] `mdnote list` prints file paths with URLs; with no live server it says so and exits 0
-- [ ] Index colors go through the `:root` token block (style test stays green)
-- [ ] `bun test` and `bunx tsc --noEmit` clean
+- [x] With two files open, `/` shows both as clickable links to their document URLs
+- [x] `mdnote list` prints file paths with URLs; with no live server it says so and exits 0
+- [x] Index colors go through the `:root` token block (style test stays green)
+- [x] `bun test` and `bunx tsc --noEmit` clean
 
 ## 06 — Registry persistence with age-out
 
