@@ -109,6 +109,12 @@ body {
 .doc li > ol {
   margin: 0.25em 0;
 }
+/* In a loose item, a trailing tight sub-list gets the same bottom spacing the
+   paragraphs carry, so the next item doesn't hug the sub-bullets. */
+.doc li > p ~ ul,
+.doc li > p ~ ol {
+  margin-bottom: 1.1em;
+}
 
 .doc a {
   color: var(--accent);
