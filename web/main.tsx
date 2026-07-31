@@ -314,6 +314,8 @@ function App() {
   );
   const [hovered, setHovered] = useState<Element | null>(null);
   const [focus, setFocus] = useState<{ id: string; tick: number } | null>(null);
+  const [hoveredEntryId, setHoveredEntryId] = useState<string | null>(null);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [toast, showToast] = useToast(2000);
 
   const docRef = useRef<HTMLDivElement>(null);
@@ -373,10 +375,25 @@ function App() {
   };
 
   useAction("annotate-block", () => annotateBlock(hovered));
+
+  // Target resolution for e/d: hovered sidebar entry, else last-clicked
+  // (focused) entry, else the open doc popover.
+  const sidebarTargetId = hoveredEntryId ?? focus?.id ?? null;
+  const sidebarTarget =
+    sidebarTargetId && annotations.some((a) => a.id === sidebarTargetId) ? sidebarTargetId : null;
+
   useAction("edit-annotation", () => {
+    if (sidebarTarget) {
+      setEditingEntryId(sidebarTarget);
+      return;
+    }
     if (openAnn) setOpenAnn({ ...openAnn, editing: true });
   });
   useAction("delete-annotation", () => {
+    if (sidebarTarget) {
+      remove(sidebarTarget);
+      return;
+    }
     if (openAnn) remove(openAnn.id);
   });
 
@@ -453,6 +470,9 @@ function App() {
         onDelete={remove}
         onEdit={edit}
         onGlobal={(note) => submit({ lineRange: null, anchorText: null, note })}
+        onHoverEntry={setHoveredEntryId}
+        editingId={editingEntryId}
+        onEditingChange={setEditingEntryId}
       />
       {toast && <div class="toast">{toast}</div>}
       {openAnn && openAnnotation && (
@@ -536,9 +556,12 @@ function Sidebar(props: {
   onDelete: (id: string) => void;
   onEdit: (id: string, note: string) => void;
   onGlobal: (note: string) => void;
+  onHoverEntry: (id: string | null) => void;
+  editingId: string | null;
+  onEditingChange: (id: string | null) => void;
 }) {
   const [adding, setAdding] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const { editingId, onEditingChange } = props;
   const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
@@ -611,6 +634,8 @@ function Sidebar(props: {
             class={`entry ${a.status}${props.focus?.id === a.id ? " focused" : ""}`}
             data-annotation-id={a.id}
             onClick={() => props.onFocus(a.id)}
+            onMouseEnter={() => props.onHoverEntry(a.id)}
+            onMouseLeave={() => props.onHoverEntry(null)}
           >
             <div class="entry-head">
               {!a.anchorText && <span class="badge badge-global">global</span>}
@@ -621,7 +646,7 @@ function Sidebar(props: {
                 title="Edit note"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setEditingId(a.id);
+                  onEditingChange(a.id);
                 }}
               >
                 ✎
@@ -647,13 +672,13 @@ function Sidebar(props: {
                 submitLabel="Save"
                 onSubmit={(note) => {
                   props.onEdit(a.id, note);
-                  setEditingId(null);
+                  onEditingChange(null);
                 }}
-                onCancel={() => setEditingId(null)}
+                onCancel={() => onEditingChange(null)}
               />
             ) : (
               a.note && (
-                <p class="note" onDblClick={() => setEditingId(a.id)}>
+                <p class="note" onDblClick={() => onEditingChange(a.id)}>
                   {a.note}
                 </p>
               )
