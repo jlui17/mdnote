@@ -385,9 +385,56 @@ function App() {
           onPick={(note) =>
             submit({ lineRange: pending.lineRange, anchorText: pending.anchorText, note })
           }
+          onCancel={() => setPending(null)}
         />
       )}
     </>
+  );
+}
+
+const focusOnMount = (el: HTMLTextAreaElement | null) => el?.focus();
+
+function NoteForm(props: {
+  rows: number;
+  placeholder?: string;
+  initial?: string;
+  submitLabel: string;
+  class?: string;
+  onSubmit: (note: string) => void;
+  onCancel: () => void;
+}) {
+  const [note, setNote] = useState(props.initial ?? "");
+
+  return (
+    <form
+      class={props.class}
+      onClick={(e) => e.stopPropagation()}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (note.trim()) props.onSubmit(note.trim());
+      }}
+    >
+      <textarea
+        rows={props.rows}
+        placeholder={props.placeholder}
+        value={note}
+        ref={focusOnMount}
+        onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
+            (e.target as HTMLTextAreaElement).form?.requestSubmit();
+          if (e.key === "Escape") props.onCancel();
+        }}
+      />
+      <div class="row">
+        <button type="submit" disabled={!note.trim()}>
+          {props.submitLabel} <kbd>{isMac ? "⌘↩" : "Ctrl+↩"}</kbd>
+        </button>
+        <button type="button" onClick={props.onCancel}>
+          Cancel <kbd>Esc</kbd>
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -400,9 +447,7 @@ function Sidebar(props: {
   onGlobal: (note: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
-  const [note, setNote] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
@@ -418,15 +463,7 @@ function Sidebar(props: {
     el.addEventListener("animationend", () => el.classList.remove("flash"), { once: true });
   }, [props.focus]);
 
-  const startEditing = (a: Annotation) => {
-    setEditingId(a.id);
-    setDraft(a.note);
-  };
-
-  const saveEdit = () => {
-    if (editingId && draft.trim()) props.onEdit(editingId, draft.trim());
-    setEditingId(null);
-  };
+  useAction("annotate-document", () => setAdding(true));
 
   return (
     <aside class="sidebar">
@@ -437,43 +474,18 @@ function Sidebar(props: {
 
       <div class="global-form">
         {adding ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!note.trim()) return;
-              props.onGlobal(note.trim());
-              setNote("");
+          <NoteForm
+            rows={3}
+            placeholder="Note about the whole document"
+            submitLabel="Add"
+            onSubmit={(note) => {
+              props.onGlobal(note);
               setAdding(false);
             }}
-          >
-            <textarea
-              rows={3}
-              placeholder="Note about the whole document"
-              value={note}
-              autofocus
-              onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
-                  (e.target as HTMLTextAreaElement).form?.requestSubmit();
-              }}
-            />
-            <div class="row">
-              <button type="submit">Add</button>
-              <button
-                type="button"
-                onClick={() => {
-                  setNote("");
-                  setAdding(false);
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
+            onCancel={() => setAdding(false)}
+          />
         ) : (
-          <button type="button" onClick={() => setAdding(true)}>
-            Add general note
-          </button>
+          <ActionButton id="annotate-document" />
         )}
       </div>
 
@@ -497,7 +509,7 @@ function Sidebar(props: {
                 title="Edit note"
                 onClick={(e) => {
                   e.stopPropagation();
-                  startEditing(a);
+                  setEditingId(a.id);
                 }}
               >
                 ✎
@@ -516,37 +528,20 @@ function Sidebar(props: {
             </div>
             {a.anchorText && <blockquote class="anchor">{snippet(a.anchorText)}</blockquote>}
             {editingId === a.id ? (
-              <form
+              <NoteForm
                 class="edit-form"
-                onClick={(e) => e.stopPropagation()}
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  saveEdit();
+                rows={2}
+                initial={a.note}
+                submitLabel="Save"
+                onSubmit={(note) => {
+                  props.onEdit(a.id, note);
+                  setEditingId(null);
                 }}
-              >
-                <textarea
-                  rows={2}
-                  value={draft}
-                  autofocus
-                  onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
-                  onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
-                      (e.target as HTMLTextAreaElement).form?.requestSubmit();
-                    if (e.key === "Escape") setEditingId(null);
-                  }}
-                />
-                <div class="row">
-                  <button type="submit" disabled={!draft.trim()}>
-                    Save
-                  </button>
-                  <button type="button" onClick={() => setEditingId(null)}>
-                    Cancel
-                  </button>
-                </div>
-              </form>
+                onCancel={() => setEditingId(null)}
+              />
             ) : (
               a.note && (
-                <p class="note" onDblClick={() => startEditing(a)}>
+                <p class="note" onDblClick={() => setEditingId(a.id)}>
                   {a.note}
                 </p>
               )
@@ -602,27 +597,13 @@ function Popover(props: {
   popoverRef: { current: HTMLDivElement | null };
   rect: DOMRect;
   onPick: (note: string) => void;
+  onCancel: () => void;
 }) {
-  const [note, setNote] = useState("");
   const pos = usePopoverPosition(props.popoverRef, props.rect);
 
   return (
     <div class="popover" ref={props.popoverRef} style={{ left: `${pos.left}px`, top: `${pos.top}px` }}>
-      <textarea
-        rows={2}
-        placeholder="Note…"
-        value={note}
-        onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && note.trim())
-            props.onPick(note.trim());
-        }}
-      />
-      <div class="row">
-        <button type="button" disabled={!note.trim()} onClick={() => props.onPick(note.trim())}>
-          Add note <kbd>{isMac ? "⌘↩" : "Ctrl+↩"}</kbd>
-        </button>
-      </div>
+      <NoteForm rows={2} placeholder="Note…" submitLabel="Add" onSubmit={props.onPick} onCancel={props.onCancel} />
     </div>
   );
 }

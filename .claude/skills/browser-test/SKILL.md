@@ -62,7 +62,7 @@ agent-browser mouse move <x1> <y1>
 agent-browser mouse down left
 agent-browser mouse move <x2> <y2>
 agent-browser mouse up left
-agent-browser snapshot -i    # popover is now in the tree: textbox "Note…", button "Add note ⌘↩"
+agent-browser snapshot -i    # popover is now in the tree: textbox "Note…", button "Add ⌘↩"
 ```
 
 The walker loop matters: the first text node of a list or blockquote is often whitespace, and `setStart` on the wrong node throws `IndexSizeError`. One intermediate `mouse move` between down and up is enough to register as a drag. Don't assert on `window.getSelection()` after mouseup — it reads empty under CDP even when the selection took; trust `CSS.highlights` and screenshots instead.
@@ -75,7 +75,7 @@ Then annotate:
 
 ```bash
 agent-browser fill @eN "note text"     # the "Note…" textbox ref
-agent-browser click @eM                # "Add note ⌘↩" (disabled until text is typed)
+agent-browser click @eM                # "Add ⌘↩" (disabled until text is typed)
 agent-browser wait --text "note text"  # sidebar card appeared
 ```
 
