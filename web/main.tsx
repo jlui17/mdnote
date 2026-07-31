@@ -27,6 +27,10 @@ import {
   selectionAnchor,
   type SelectionAnchor,
 } from "./anchor-dom.ts";
+import { createHoverController, type HoverController } from "./hover.ts";
+
+const HOVER_OPEN_MS = 250;
+const HOVER_CLOSE_MS = 300;
 
 const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown })
   .Highlight;
@@ -175,6 +179,17 @@ function paddedBox(el: Element): Box {
   };
 }
 
+/** Boxes are `pointer-events: none` chrome, so click and hover both resolve them by coordinate. */
+function boxAt<T extends { box: Box }>(boxes: T[], pageX: number, pageY: number): T | undefined {
+  return boxes.find(
+    ({ box }) =>
+      pageX >= box.left &&
+      pageX <= box.left + box.width &&
+      pageY >= box.top &&
+      pageY <= box.top + box.height,
+  );
+}
+
 function viewportRect(b: Box): DOMRect {
   return new DOMRect(b.left - window.scrollX, b.top - window.scrollY, b.width, b.height);
 }
@@ -319,6 +334,7 @@ function useDocEvents(args: {
   setPending: (p: SelectionAnchor | null) => void;
   setOpenAnn: (a: null) => void;
   setHovered: (el: Element | null) => void;
+  pinnedRef: { current: boolean };
 }) {
   const dismissRef = useRef(false);
   const draggedRef = useRef(false);
@@ -337,7 +353,9 @@ function useDocEvents(args: {
     };
     const onMouseDown = (e: MouseEvent) => {
       if (inPopover(e.target)) return;
-      dismissRef.current = args.popoverRef.current !== null || args.annPopoverRef.current !== null;
+      dismissRef.current =
+        args.popoverRef.current !== null ||
+        (args.annPopoverRef.current !== null && args.pinnedRef.current);
       draggedRef.current = false;
       args.setPending(null);
       args.setOpenAnn(null);
@@ -372,6 +390,62 @@ function useDocEvents(args: {
   return { dismissRef, draggedRef };
 }
 
+/** `pinned`: opened by a click or an edit, so mouse-out leaves it alone. */
+type OpenAnn = { id: string; rect: DOMRect; editing: boolean; pinned: boolean };
+
+/** Resting on an annotation opens its popover; the pointer may cross the gap into the popover. */
+function useHoverPreview(args: {
+  rangesRef: RefObject<{ id: string; range: Range }[]>;
+  boxesRef: RefObject<{ id: string; box: Box }[]>;
+  annPopoverRef: RefObject<HTMLDivElement>;
+  pinnedRef: { current: boolean };
+  formOpenRef: { current: boolean };
+  setOpenAnn: (update: (a: OpenAnn | null) => OpenAnn | null) => void;
+}) {
+  const ref = useRef<HoverController<{ id: string; rect: DOMRect }> | null>(null);
+
+  useEffect(() => {
+    const ctl = createHoverController<{ id: string; rect: DOMRect }>({
+      openDelay: HOVER_OPEN_MS,
+      closeDelay: HOVER_CLOSE_MS,
+      keyOf: (t) => t.id,
+      onOpen: (t) => args.setOpenAnn(() => ({ ...t, editing: false, pinned: false })),
+      onClose: () => args.setOpenAnn((a) => (a && !a.pinned ? null : a)),
+    });
+    ref.current = ctl;
+
+    let frame = 0;
+    let at: { x: number; y: number; target: EventTarget | null } | null = null;
+    const sample = () => {
+      frame = 0;
+      if (!at) return;
+      if (args.formOpenRef.current) return ctl.cancel();
+      if (args.annPopoverRef.current?.contains(at.target as Node)) return ctl.keepOpen();
+      if (args.pinnedRef.current) return ctl.cancel();
+      const caret = caretAt(at.x, at.y);
+      const hit =
+        caret && args.rangesRef.current?.find((r) => r.range.isPointInRange(caret.node, caret.offset));
+      if (hit) return ctl.enter({ id: hit.id, rect: hit.range.getBoundingClientRect() });
+      const inBox = boxAt(args.boxesRef.current ?? [], at.x + window.scrollX, at.y + window.scrollY);
+      if (inBox) ctl.enter({ id: inBox.id, rect: viewportRect(inBox.box) });
+      else ctl.leave();
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      at = { x: e.clientX, y: e.clientY, target: e.target };
+      if (!frame) frame = requestAnimationFrame(sample);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      if (frame) cancelAnimationFrame(frame);
+      ctl.cancel();
+    };
+  }, []);
+
+  return ref;
+}
+
 function useToast(ms: number): [string | null, (message: string) => void] {
   const [message, setMessage] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
@@ -387,9 +461,7 @@ function useToast(ms: number): [string | null, (message: string) => void] {
 
 function App() {
   const [pending, setPending] = useState<SelectionAnchor | null>(null);
-  const [openAnn, setOpenAnn] = useState<{ id: string; rect: DOMRect; editing: boolean } | null>(
-    null,
-  );
+  const [openAnn, setOpenAnn] = useState<OpenAnn | null>(null);
   const [hovered, setHovered] = useState<Element | null>(null);
   const [focus, setFocus] = useState<{ id: string; tick: number } | null>(null);
   const [hoveredEntryId, setHoveredEntryId] = useState<string | null>(null);
@@ -406,6 +478,12 @@ function App() {
   });
   const rangesRef = useHighlights(docRef, annotations, doc?.html, pending, focus);
   const blockBoxes = useBlockBoxes(docRef, annotations, doc?.html);
+  const pinnedRef = useRef(false);
+  pinnedRef.current = openAnn?.pinned ?? false;
+  const formOpenRef = useRef(false);
+  formOpenRef.current = pending !== null;
+  const boxesRef = useRef(blockBoxes);
+  boxesRef.current = blockBoxes;
   const { dismissRef, draggedRef } = useDocEvents({
     docRef,
     popoverRef,
@@ -413,7 +491,20 @@ function App() {
     setPending,
     setOpenAnn,
     setHovered,
+    pinnedRef,
   });
+  const hoverRef = useHoverPreview({
+    rangesRef,
+    boxesRef,
+    annPopoverRef,
+    pinnedRef,
+    formOpenRef,
+    setOpenAnn,
+  });
+
+  useEffect(() => {
+    if (!openAnn) hoverRef.current?.cancel();
+  }, [openAnn]);
 
   const copyPrompt = () => {
     const path = doc?.path;
@@ -455,18 +546,19 @@ function App() {
 
   useAction("annotate-block", () => annotateBlock(hovered));
 
-  // Target resolution for e/d: hovered sidebar entry, else last-clicked
-  // (focused) entry, else the open doc popover.
-  const sidebarTargetId = hoveredEntryId ?? focus?.id ?? null;
-  const sidebarTarget =
-    sidebarTargetId && annotations.some((a) => a.id === sidebarTargetId) ? sidebarTargetId : null;
+  // Target resolution for e/d: hovered sidebar entry, else the open doc popover,
+  // else the last-clicked (focused) entry. What the pointer is on beats the
+  // stale focus a hover-opened popover leaves untouched.
+  const entryTarget = (id: string | null | undefined) =>
+    id && annotations.some((a) => a.id === id) ? id : null;
+  const sidebarTarget = entryTarget(hoveredEntryId) ?? (openAnn ? null : entryTarget(focus?.id));
 
   useAction("edit-annotation", () => {
     if (sidebarTarget) {
       setEditingEntryId(sidebarTarget);
       return;
     }
-    if (openAnn) setOpenAnn({ ...openAnn, editing: true });
+    if (openAnn) setOpenAnn({ ...openAnn, editing: true, pinned: true });
   });
   useAction("delete-annotation", () => {
     if (sidebarTarget) {
@@ -489,20 +581,19 @@ function App() {
       const hit = rangesRef.current.find((r) => r.range.isPointInRange(caret.node, caret.offset));
       if (hit) {
         focusAnnotation(hit.id);
-        setOpenAnn({ id: hit.id, rect: hit.range.getBoundingClientRect(), editing: false });
+        setOpenAnn({
+          id: hit.id,
+          rect: hit.range.getBoundingClientRect(),
+          editing: false,
+          pinned: true,
+        });
         return;
       }
     }
-    const inBox = blockBoxes.find(
-      ({ box }) =>
-        e.pageX >= box.left &&
-        e.pageX <= box.left + box.width &&
-        e.pageY >= box.top &&
-        e.pageY <= box.top + box.height,
-    );
+    const inBox = boxAt(blockBoxes, e.pageX, e.pageY);
     if (inBox) {
       focusAnnotation(inBox.id);
-      setOpenAnn({ id: inBox.id, rect: viewportRect(inBox.box), editing: false });
+      setOpenAnn({ id: inBox.id, rect: viewportRect(inBox.box), editing: false, pinned: true });
       return;
     }
     annotateBlock(target.closest("[data-source-line]"));
