@@ -15,6 +15,7 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 - `src/store.ts` — sidecar JSON read/write (`<file>.mdnote.json`), atomic via temp-file + rename.
 - `src/types.ts` — shared types. Import from here; never redeclare.
 - `web/anchor-dom.ts` — framework-free DOM math (selection → `data-source-line` → line ranges, text-node search for highlight ranges). No Preact imports, by design.
+- `web/hover.ts` — the hover-preview timing state machine (rest to open, grace to close), DOM-free so it tests without a browser.
 - `web/main.tsx` — Preact chrome (sidebar, popover, SSE state) around the doc island.
 
 ## Invariants
@@ -31,6 +32,7 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 - **Button labels: contextual names the verb, global names the object.** A button inside a context that already names its object (the annotation popover, a sidebar entry) shows one short verb (Edit, Delete, Save); a button with no surrounding context names its object (Copy review prompt, Copy markdown). `src/actions.ts` keeps the descriptive catalog label for tooltips and the help dialog regardless of what a button displays (`ActionButton`'s `label` prop overrides the visible text only).
 - **The registry persists paths, not watchers.** Restored entries only populate the file map; a watcher still appears when that file's first SSE client connects. `loadRegistry()` drops entries whose file no longer exists or that went untouched past the 14-day age-out; the touch points are `register()` (`/api/open`, auto-register) and a document GET of an already-registered path.
 - **Blockness is persisted, never inferred.** `Annotation.block` is set at creation from a whole-block gesture and carried through `reanchor()`; presentation never guesses it from text coverage. A block annotation paints only the `.block-box` overlay (open/stale variants of the pending box), never a text highlight — one visual, one meaning. Boxes are chrome outside `#doc`, measured off the block element and re-measured on doc reload and window resize, and clicks hit-test the box rect (padding included) after the text-range test.
+- **Hover previews an annotation popover, click pins it.** One `openAnn` state carries `pinned`; only an unpinned popover closes on mouse-out, and clicking or entering edit mode sets `pinned`, so a draft never dies to a stray mouse move. Hover resolves its target exactly like the click path, in the same order — text ranges via `caretAt()`, then block-box rects — because boxes are `pointer-events: none` chrome and the doc island has no per-annotation elements to take mouseenter; the sample is rAF-throttled and inert while a note form is open. `e`/`d` resolve their target in pointer-first order: hovered sidebar entry, then the open doc popover, then the last-clicked entry — an open popover outranks the focus it never set.
 - **Stale annotations are never silently dropped.** `reanchor()` flips them to `status: "stale"` and keeps the old `lineRange`; only a human (or explicit `clear`) removes them.
 
 ## Hiccups
@@ -47,4 +49,4 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 
 ## Verifying changes
 
-`bun test` (91 tests: render stamps, anchor matching, sidecar, style tokens, server registry/SSE scoping and keepalive, idle shutdown, lock liveness, registry persistence) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a browser poke — use the `browser-test` skill (drives the real UI headlessly with agent-browser: drag-select, annotate, edit the file, assert sidecar/highlights).
+`bun test` (102 tests: render stamps, anchor matching, sidecar, style tokens, hover-preview timing, server registry/SSE scoping and keepalive, idle shutdown, lock liveness, registry persistence) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a browser poke — use the `browser-test` skill (drives the real UI headlessly with agent-browser: drag-select, annotate, edit the file, assert sidecar/highlights).
