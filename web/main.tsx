@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation } from "../src/types.ts";
+import { ActionButton, isMac, useAction, useActionDispatcher } from "./actions.tsx";
 import { caretAt, findRange, selectionAnchor, type SelectionAnchor } from "./anchor-dom.ts";
 
 const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown })
@@ -79,8 +80,6 @@ async function copyText(text: string): Promise<void> {
   ta.remove();
 }
 
-const isMac = /Mac|iP/.test(navigator.platform);
-
 type ThemeMode = "system" | "light" | "dark";
 const THEME_KEY = "mdnote-theme";
 const THEME_NEXT: Record<ThemeMode, ThemeMode> = { system: "light", light: "dark", dark: "system" };
@@ -101,6 +100,8 @@ function ThemeToggle() {
       localStorage.setItem(THEME_KEY, mode);
     }
   }, [mode]);
+
+  useAction("toggle-theme", () => setMode(THEME_NEXT[mode]));
 
   return (
     <button
@@ -201,16 +202,8 @@ function App() {
     });
   };
 
-  useEffect(() => {
-    if (!doc?.path) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.key.toLowerCase() !== "c") return;
-      e.preventDefault();
-      copyPrompt();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [doc?.path]);
+  useAction("copy-prompt", copyPrompt);
+  useActionDispatcher();
 
   useEffect(() => {
     const onMouseUp = (e: MouseEvent) => {
@@ -281,7 +274,6 @@ function App() {
         onDelete={remove}
         onEdit={edit}
         onGlobal={(note) => submit({ lineRange: null, anchorText: null, note })}
-        onCopyPrompt={copyPrompt}
       />
       {copied && <div class="toast">Copied agent prompt</div>}
       {pending && (
@@ -304,7 +296,6 @@ function Sidebar(props: {
   onDelete: (id: string) => void;
   onEdit: (id: string, note: string) => void;
   onGlobal: (note: string) => void;
-  onCopyPrompt: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [note, setNote] = useState("");
@@ -338,10 +329,7 @@ function Sidebar(props: {
   return (
     <aside class="sidebar">
       <header class="sidebar-head">
-        <button type="button" class="copy-prompt" onClick={props.onCopyPrompt}>
-          Copy review prompt
-          <kbd>{isMac ? "⌘⇧C" : "Ctrl+Shift+C"}</kbd>
-        </button>
+        <ActionButton id="copy-prompt" class="copy-prompt" />
         <ThemeToggle />
       </header>
 
