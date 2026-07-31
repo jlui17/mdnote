@@ -78,17 +78,17 @@ An invalid entry warns in the server log and falls back to the default for that 
 
 ## Remote use
 
-The server binds `127.0.0.1` on a random port by default. Reviewing a file on a VM or remote box is the same command with a bind flag:
+The server binds `127.0.0.1:4820` by default. Reviewing a file on a VM or remote box is the same command with a bind flag:
 
 ```
 mdnote review notes.md --host 0.0.0.0 --port 7777
 ```
 
-Open `http://<vm-ip>:7777` from anywhere that can reach the host. Nothing in the page assumes the browser and server share a machine; securing the port (firewall, tailscale, ssh tunnel) is up to you.
+Open `http://<vm-ip>:7777/<absolute path to notes.md>` (the exact URL is printed) from anywhere that can reach the host. Nothing in the page assumes the browser and server share a machine; securing the port (firewall, tailscale, ssh tunnel) is up to you.
 
 ## CLI reference
 
-- **`mdnote review <file.md> [--host H] [--port P]`** — starts the server and opens the browser (loopback only). Defaults to `127.0.0.1` on a random port.
+- **`mdnote review <file.md> [--host H] [--port P]`** — starts the server and opens the browser (loopback only). Defaults to `127.0.0.1:4820`; the document lives at the file's absolute path on that port.
 - **`mdnote comments <file.md> [--json]`** — lists annotations. `--json` prints `{file, annotations}`; without it, a human-readable list.
 - **`mdnote clear <file.md> [--ids ID[,ID...]]`** — clears the listed annotations by `--ids` (comma-separated), or all annotations if omitted.
 

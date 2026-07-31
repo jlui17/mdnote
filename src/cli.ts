@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { resolve } from "node:path";
 import { readSidecar, writeSidecar } from "./store.ts";
 import type { Annotation } from "./types.ts";
 
@@ -31,6 +32,10 @@ function readLiveLock(file: string): Lock | null {
     return null;
   }
   return lock;
+}
+
+function apiUrl(lock: Lock, file: string, route: string): string {
+  return `http://127.0.0.1:${lock.port}/api${route}?file=${encodeURIComponent(resolve(file))}`;
 }
 
 async function fetchWithTimeout(url: string, init?: RequestInit, ms = 300): Promise<Response> {
@@ -72,7 +77,7 @@ async function cmdReview(args: string[]) {
   if (!existsSync(file)) die(`review: no such file: ${file}`);
 
   const host = typeof flags.host === "string" ? flags.host : "127.0.0.1";
-  const port = typeof flags.port === "string" ? Number(flags.port) : 0;
+  const port = typeof flags.port === "string" ? Number(flags.port) : 4820;
 
   const { startServer } = await import("./server.ts");
   const server = await startServer({ file, host, port });
@@ -109,7 +114,7 @@ async function cmdComments(args: string[]) {
   const lock = readLiveLock(file);
   if (lock) {
     try {
-      const res = await fetchWithTimeout(`http://127.0.0.1:${lock.port}/annotations`);
+      const res = await fetchWithTimeout(apiUrl(lock, file, "/annotations"));
       annotations = ((await res.json()) as { annotations: Annotation[] }).annotations;
     } catch {
       annotations = readSidecar(file).annotations;
@@ -144,10 +149,10 @@ async function cmdClear(args: string[]) {
     try {
       if (ids) {
         for (const id of ids) {
-          await fetchWithTimeout(`http://127.0.0.1:${lock.port}/annotations/${id}`, { method: "DELETE" });
+          await fetchWithTimeout(apiUrl(lock, file, `/annotations/${id}`), { method: "DELETE" });
         }
       } else {
-        await fetchWithTimeout(`http://127.0.0.1:${lock.port}/annotations`, { method: "DELETE" });
+        await fetchWithTimeout(apiUrl(lock, file, "/annotations"), { method: "DELETE" });
       }
       return;
     } catch {

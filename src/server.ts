@@ -20,6 +20,10 @@ async function bundleFrontend(): Promise<string> {
   return first ? await first.text() : "";
 }
 
+export function pathToUrl(file: string): string {
+  return file.split("/").map(encodeURIComponent).join("/");
+}
+
 export async function startServer(opts: { file: string; host: string; port: number }): Promise<{
   url: string;
   port: number;
@@ -61,15 +65,6 @@ export async function startServer(opts: { file: string; host: string; port: numb
       const url = new URL(req.url);
       const path = url.pathname;
 
-      if (req.method === "GET" && (path === "/" || path === "/index.html")) {
-        const f = Bun.file(join(WEB_DIR, "index.html"));
-        if (!(await f.exists())) return new Response("index.html not found", { status: 404 });
-        const config = JSON.stringify(loadConfig()).replace(/</g, "\\u003c");
-        return new Response((await f.text()).replace("__MDNOTE_CONFIG_JSON__", config), {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        });
-      }
-
       if (req.method === "GET" && path === "/main.js") {
         return new Response(mainJs, {
           headers: { "content-type": "text/javascript; charset=utf-8" },
@@ -82,86 +77,114 @@ export async function startServer(opts: { file: string; host: string; port: numb
         return new Response(f, { headers: { "content-type": "text/css; charset=utf-8" } });
       }
 
-      if (req.method === "GET" && path === "/doc") {
-        const source = await readSource();
-        const body: DocResponse = { path: file, source, html: render(source) };
-        return json(body);
+      if (path.startsWith("/api/")) {
+        const qfile = url.searchParams.get("file");
+        if (!qfile || resolve(qfile) !== file) return json({ error: "unknown file" }, 404);
+        return apiFetch(req, path.slice("/api".length));
       }
 
-      if (path === "/annotations") {
-        if (req.method === "GET") return json({ annotations: readSidecar(file).annotations });
-
-        if (req.method === "POST") {
-          const body = (await req.json()) as NewAnnotation;
-          let lineRange = body.lineRange;
-          if (body.anchorText) {
-            const found = locate(await readSource(), body.anchorText, lineRange ?? undefined);
-            if (found) lineRange = found;
-          }
-          const created: Annotation = {
-            id: crypto.randomUUID(),
-            lineRange: body.anchorText ? lineRange : null,
-            anchorText: body.anchorText,
-            note: body.note,
-            createdAt: new Date().toISOString(),
-            status: "open",
-          };
-          const sidecar = readSidecar(file);
-          sidecar.annotations.push(created);
-          persist(sidecar.annotations);
-          return json(created, 201);
-        }
-
-        if (req.method === "DELETE") {
-          persist([]);
-          return new Response(null, { status: 204 });
-        }
+      let docPath: string;
+      try {
+        docPath = decodeURIComponent(path);
+      } catch {
+        return new Response("not found", { status: 404 });
       }
 
-      if (path.startsWith("/annotations/")) {
-        const id = decodeURIComponent(path.slice("/annotations/".length));
-
-        if (req.method === "PATCH") {
-          const body = (await req.json()) as AnnotationPatch;
-          const sidecar = readSidecar(file);
-          const target = sidecar.annotations.find((a) => a.id === id);
-          if (!target) return json({ error: "annotation not found" }, 404);
-          target.note = body.note;
-          persist(sidecar.annotations);
-          return json(target);
-        }
-
-        if (req.method === "DELETE") {
-          const sidecar = readSidecar(file);
-          persist(sidecar.annotations.filter((a) => a.id !== id));
-          return new Response(null, { status: 204 });
-        }
-      }
-
-      if (req.method === "GET" && path === "/events") {
-        let self: ReadableStreamDefaultController<Uint8Array>;
-        const stream = new ReadableStream<Uint8Array>({
-          start(controller) {
-            self = controller;
-            clients.add(controller);
-            controller.enqueue(encoder.encode(": connected\n\n"));
-          },
-          cancel() {
-            clients.delete(self);
-          },
-        });
-        return new Response(stream, {
-          headers: {
-            "content-type": "text/event-stream",
-            "cache-control": "no-cache",
-            connection: "keep-alive",
-          },
+      if (req.method === "GET" && (docPath === "/" || docPath === file)) {
+        if (docPath === "/")
+          return new Response(null, { status: 302, headers: { location: pathToUrl(file) } });
+        const f = Bun.file(join(WEB_DIR, "index.html"));
+        if (!(await f.exists())) return new Response("index.html not found", { status: 404 });
+        const config = JSON.stringify(loadConfig()).replace(/</g, "\\u003c");
+        return new Response((await f.text()).replace("__MDNOTE_CONFIG_JSON__", config), {
+          headers: { "content-type": "text/html; charset=utf-8" },
         });
       }
 
       return new Response("not found", { status: 404 });
     },
   });
+
+  async function apiFetch(req: Request, path: string): Promise<Response> {
+    if (req.method === "GET" && path === "/doc") {
+      const source = await readSource();
+      const body: DocResponse = { path: file, source, html: render(source) };
+      return json(body);
+    }
+
+    if (path === "/annotations") {
+      if (req.method === "GET") return json({ annotations: readSidecar(file).annotations });
+
+      if (req.method === "POST") {
+        const body = (await req.json()) as NewAnnotation;
+        let lineRange = body.lineRange;
+        if (body.anchorText) {
+          const found = locate(await readSource(), body.anchorText, lineRange ?? undefined);
+          if (found) lineRange = found;
+        }
+        const created: Annotation = {
+          id: crypto.randomUUID(),
+          lineRange: body.anchorText ? lineRange : null,
+          anchorText: body.anchorText,
+          note: body.note,
+          createdAt: new Date().toISOString(),
+          status: "open",
+        };
+        const sidecar = readSidecar(file);
+        sidecar.annotations.push(created);
+        persist(sidecar.annotations);
+        return json(created, 201);
+      }
+
+      if (req.method === "DELETE") {
+        persist([]);
+        return new Response(null, { status: 204 });
+      }
+    }
+
+    if (path.startsWith("/annotations/")) {
+      const id = decodeURIComponent(path.slice("/annotations/".length));
+
+      if (req.method === "PATCH") {
+        const body = (await req.json()) as AnnotationPatch;
+        const sidecar = readSidecar(file);
+        const target = sidecar.annotations.find((a) => a.id === id);
+        if (!target) return json({ error: "annotation not found" }, 404);
+        target.note = body.note;
+        persist(sidecar.annotations);
+        return json(target);
+      }
+
+      if (req.method === "DELETE") {
+        const sidecar = readSidecar(file);
+        persist(sidecar.annotations.filter((a) => a.id !== id));
+        return new Response(null, { status: 204 });
+      }
+    }
+
+    if (req.method === "GET" && path === "/events") {
+      let self: ReadableStreamDefaultController<Uint8Array>;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          self = controller;
+          clients.add(controller);
+          controller.enqueue(encoder.encode(": connected\n\n"));
+        },
+        cancel() {
+          clients.delete(self);
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        },
+      });
+    }
+
+    return new Response("not found", { status: 404 });
+  }
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let watcher: FSWatcher | null = null;
@@ -192,7 +215,7 @@ export async function startServer(opts: { file: string; host: string; port: numb
 
   const port = server.port ?? opts.port;
   return {
-    url: `http://${opts.host}:${port}`,
+    url: `http://${opts.host}:${port}${pathToUrl(file)}`,
     port,
     stop() {
       if (timer) clearTimeout(timer);

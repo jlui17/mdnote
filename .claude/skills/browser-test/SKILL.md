@@ -19,13 +19,15 @@ bun src/cli.ts review "$F" --host 0.0.0.0 --port 4477   # run_in_background
 for i in $(seq 1 20); do curl -sf http://127.0.0.1:4477/ -o /dev/null && break; sleep 0.3; done
 ```
 
+The document URL is `http://127.0.0.1:4477/<absolute path to $F>` (`review` prints it; `/` 302-redirects there). Always pass an explicit `--port` — the default is 4820 and a user's real server may hold it.
+
 The frontend bundles once at server startup: after editing `web/` TS, restart the server. `style.css` is read per request, so CSS changes only need `agent-browser reload`.
 
 ## 2. One browser session per worktree
 
 ```bash
 export AGENT_BROWSER_SESSION="$(agent-browser session id --scope worktree --prefix mdnote)"
-agent-browser open http://127.0.0.1:4477
+agent-browser open "http://127.0.0.1:4477$F"   # the document URL printed by review
 agent-browser snapshot -i
 ```
 
@@ -76,6 +78,8 @@ agent-browser fill @eN "note text"     # the "Note…" textbox ref
 agent-browser click @eM                # "Add note ⌘↩" (disabled until text is typed)
 agent-browser wait --text "note text"  # sidebar card appeared
 ```
+
+`fill` on the popover textbox sometimes dismisses the popover without typing. If the submit button stays disabled or the popover vanished, fall back to `click @eN` + `agent-browser keyboard type "note text"`, and eval-check the textarea's `.value` before submitting.
 
 ## 4. Assert results
 
