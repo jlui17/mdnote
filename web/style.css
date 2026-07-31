@@ -5,6 +5,7 @@
   --muted: light-dark(#6c6f85, #898e94);
   --line: light-dark(#ccd0da, #33363b);
   --accent: light-dark(#1e66f5, #4b8dec);
+  --accent-fg: light-dark(#ffffff, #eef3fb);
   --panel: light-dark(#e6e9ef, #1e1f22);
   --surface: light-dark(#eff1f5, #252629);
   --shadow: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.55));
@@ -299,19 +300,106 @@ body {
   right: 0;
   width: var(--sidebar);
   height: 100vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
   border-left: 1px solid var(--line);
-  padding: 1rem;
   font-size: 0.9rem;
 }
 
-.sidebar-head {
+.sb-head {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.sb-title {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sb-file {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sb-count {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.sb-tools {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.sb-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem 1rem;
+}
+
+.sb-foot {
+  flex: none;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.btn-icon {
+  border: 0;
+  background: none;
+  padding: 0.25em 0.45em;
+  font-size: 1rem;
+  line-height: 1.2;
+  color: var(--muted);
+  border-radius: var(--radius);
+}
+
+.btn-icon:hover {
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.btn-primary {
+  width: 100%;
+  display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45em 0.8em;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.btn-primary:hover {
+  color: var(--accent-fg);
+  filter: brightness(1.08);
+}
+
+.btn-primary kbd {
+  background: color-mix(in srgb, var(--accent-fg) 16%, transparent);
+  border-color: transparent;
+  color: var(--accent-fg);
+}
+
+.btn-secondary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45em 0.8em;
+}
+
+.add-global {
   margin-bottom: 0.75rem;
 }
 
@@ -339,19 +427,6 @@ textarea {
   resize: vertical;
   background: var(--surface);
   color: var(--fg);
-}
-
-.copy-prompt,
-.copy-markdown {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.copy-markdown {
-  flex-basis: 100%;
 }
 
 button kbd {

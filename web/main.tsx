@@ -1,7 +1,17 @@
 import { render, type RefObject } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation, Theme } from "../src/types.ts";
-import { ActionButton, isMac, useAction, useActionDispatcher } from "./actions.tsx";
+import {
+  ACTIONS,
+  ActionButton,
+  bindingFor,
+  formatKeybinding,
+  isMac,
+  runAction,
+  useAction,
+  useActionDispatcher,
+  type ActionId,
+} from "./actions.tsx";
 import { blockAnchor, caretAt, findRange, selectionAnchor, type SelectionAnchor } from "./anchor-dom.ts";
 
 const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown })
@@ -101,11 +111,22 @@ function ThemeToggle() {
   useAction("toggle-theme", cycle);
 
   return (
-    <button type="button" class="theme-toggle" title={`Theme: ${mode}`} onClick={cycle}>
+    <button type="button" class="btn-icon" title={`Theme: ${mode}`} onClick={cycle}>
       {THEME_ICON[mode]}
     </button>
   );
 }
+
+function IconButton(props: { id: ActionId; glyph: string }) {
+  const kb = bindingFor(props.id);
+  const title = ACTIONS[props.id].label + (kb ? ` (${formatKeybinding(kb)})` : "");
+  return (
+    <button type="button" class="btn-icon" title={title} onClick={() => runAction(props.id)}>
+      {props.glyph}
+    </button>
+  );
+}
+
 
 /** Block box extended to the parent list's left edge, covering markers, which render outside the li box. */
 function blockBox(el: Element): { left: number; top: number; width: number; height: number } {
@@ -425,6 +446,7 @@ function App() {
         dangerouslySetInnerHTML={{ __html: doc?.html ?? "" }}
       />
       <Sidebar
+        path={doc?.path}
         annotations={annotations}
         focus={focus}
         onFocus={scrollTo}
@@ -507,6 +529,7 @@ function NoteForm(props: {
 }
 
 function Sidebar(props: {
+  path?: string;
   annotations: Annotation[];
   focus: { id: string; tick: number } | null;
   onFocus: (id: string) => void;
@@ -533,32 +556,52 @@ function Sidebar(props: {
 
   useAction("annotate-document", () => setAdding(true));
 
+  const addKb = bindingFor("annotate-document");
+  const name = props.path?.split("/").pop() ?? "";
+  const count = props.annotations.length;
+
+  const globalForm = adding && (
+    <div class="global-form">
+      <NoteForm
+        rows={3}
+        placeholder="Note about the whole document"
+        submitLabel="Add"
+        onSubmit={(note) => {
+          props.onGlobal(note);
+          setAdding(false);
+        }}
+        onCancel={() => setAdding(false)}
+      />
+    </div>
+  );
+
   return (
     <aside class="sidebar">
-      <header class="sidebar-head">
-        <ActionButton id="copy-prompt" class="copy-prompt" />
-        <ThemeToggle />
-        <ActionButton id="copy-markdown" class="copy-markdown" />
+      <header class="sb-head">
+        <div class="sb-title">
+          <span class="sb-file" title={props.path}>
+            {name}
+          </span>
+          <span class="sb-count">
+            {count} {count === 1 ? "note" : "notes"}
+          </span>
+        </div>
+        <div class="sb-tools">
+          <IconButton id="copy-markdown" glyph="⧉" />
+          <ThemeToggle />
+        </div>
       </header>
 
-      <div class="global-form">
-        {adding ? (
-          <NoteForm
-            rows={3}
-            placeholder="Note about the whole document"
-            submitLabel="Add"
-            onSubmit={(note) => {
-              props.onGlobal(note);
-              setAdding(false);
-            }}
-            onCancel={() => setAdding(false)}
-          />
-        ) : (
-          <ActionButton id="annotate-document" />
+      <div class="sb-body">
+        {!adding && (
+          <button type="button" class="btn-primary add-global" onClick={() => setAdding(true)}>
+            + General note
+            {addKb && <kbd>{formatKeybinding(addKb)}</kbd>}
+          </button>
         )}
-      </div>
+        {globalForm}
 
-      <ul class="annotation-list" ref={listRef}>
+        <ul class="annotation-list" ref={listRef}>
         {props.annotations.length === 0 && (
           <li class="empty">No annotations yet. Select text, or click a block to annotate it.</li>
         )}
@@ -621,7 +664,12 @@ function Sidebar(props: {
             </time>
           </li>
         ))}
-      </ul>
+        </ul>
+      </div>
+
+      <footer class="sb-foot">
+        <ActionButton id="copy-prompt" class="btn-secondary" />
+      </footer>
     </aside>
   );
 }
