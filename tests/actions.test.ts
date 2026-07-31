@@ -41,10 +41,12 @@ test("formatKeybinding renders per platform", () => {
 test("bindingFor reads the resolved map, defaulting to the catalog", () => {
   expect(bindingFor("copy-prompt")).toEqual(parseKeybinding("mod+shift+c"));
   expect(bindingFor("toggle-theme")).toBeNull();
-  expect(bindingFor("copy-prompt", { "copy-prompt": "mod+p", "toggle-theme": null })).toEqual(
-    parseKeybinding("mod+p"),
-  );
-  expect(bindingFor("copy-prompt", { "copy-prompt": null, "toggle-theme": "mod+t" })).toBeNull();
+  expect(
+    bindingFor("copy-prompt", { "copy-prompt": "mod+p", "toggle-theme": null, "annotate-block": "c" }),
+  ).toEqual(parseKeybinding("mod+p"));
+  expect(
+    bindingFor("copy-prompt", { "copy-prompt": null, "toggle-theme": "mod+t", "annotate-block": "c" }),
+  ).toBeNull();
 });
 
 test("every catalog keybinding parses to a real key", () => {

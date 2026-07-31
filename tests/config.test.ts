@@ -31,7 +31,11 @@ test("settingsPath honors XDG_CONFIG_HOME", () => {
 test("missing file yields defaults: dark theme, catalog keybindings", () => {
   const cfg = loadConfig(setup());
   expect(cfg.theme).toBe("dark");
-  expect(cfg.keybindings).toEqual({ "copy-prompt": "mod+shift+c", "toggle-theme": null });
+  expect(cfg.keybindings).toEqual({
+    "copy-prompt": "mod+shift+c",
+    "toggle-theme": null,
+    "annotate-block": "c",
+  });
 });
 
 test("settings override defaults per-key", () => {
@@ -58,7 +62,11 @@ test("invalid entries warn and fall back per-key", () => {
     ),
   );
   expect(cfg.theme).toBe("dark");
-  expect(cfg.keybindings).toEqual({ "copy-prompt": "mod+shift+c", "toggle-theme": null });
+  expect(cfg.keybindings).toEqual({
+    "copy-prompt": "mod+shift+c",
+    "toggle-theme": null,
+    "annotate-block": "c",
+  });
 });
 
 test("invalid JSON or a non-object yields defaults", () => {

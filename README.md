@@ -17,7 +17,7 @@ bun link          # puts `mdnote` on your PATH (needs ~/.bun/bin in PATH)
 mdnote review notes.md
 ```
 
-The browser opens on the rendered doc. Highlight a span and type a note in the popover — "make this punchier", "remove this paragraph" — and hit ⌘↩ (Ctrl+Enter elsewhere) or the Add button (or click "Add general note" for a doc-wide instruction not tied to a span). Clicking annotated text jumps to its note in the sidebar; the ✎ button (or double-clicking the note) edits it in place.
+The browser opens on the rendered doc. Highlight a span and type a note in the popover — "make this punchier", "remove this paragraph" — and hit ⌘↩ (Ctrl+Enter elsewhere) or the Add button (or click "Add general note" for a doc-wide instruction not tied to a span). To annotate a whole block (paragraph, heading, list item, code fence), hover it — an accent bar marks the target — and click it or press `c`; hovering a list or blockquote's own gutter targets the whole container. Clicking annotated text jumps to its note in the sidebar; the ✎ button (or double-clicking the note) edits it in place.
 
 The page opens in dark mode (or whatever `theme` you set in [Settings](#settings)); the ◐/☀/☾ button in the sidebar switches it for the session.
 
@@ -72,7 +72,7 @@ An optional `~/.config/mdnote/settings.json` (honors `$XDG_CONFIG_HOME`) overrid
 ```
 
 - **`theme`** — `"dark"` (the default), `"light"`, or `"system"` (follow the OS preference).
-- **`keybindings`** — action → shortcut, merged over the defaults; `null` unbinds a default. A spec is `mod`/`shift`/`alt` modifiers plus a key, joined by `+` (`mod` is ⌘ on Mac, Ctrl elsewhere). Actions: `copy-prompt` (default `mod+shift+c`) and `toggle-theme` (unbound by default).
+- **`keybindings`** — action → shortcut, merged over the defaults; `null` unbinds a default. A spec is `mod`/`shift`/`alt` modifiers plus a key, joined by `+` (`mod` is ⌘ on Mac, Ctrl elsewhere). Actions: `copy-prompt` (default `mod+shift+c`), `annotate-block` (default `c`), and `toggle-theme` (unbound by default).
 
 An invalid entry warns in the server log and falls back to the default for that key. Edits apply on page reload; no server restart needed.
 

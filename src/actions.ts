@@ -1,8 +1,9 @@
-export type ActionId = "copy-prompt" | "toggle-theme";
+export type ActionId = "copy-prompt" | "toggle-theme" | "annotate-block";
 
 export const ACTIONS: Record<ActionId, { label: string; keybinding?: string }> = {
   "copy-prompt": { label: "Copy review prompt", keybinding: "mod+shift+c" },
   "toggle-theme": { label: "Toggle theme" },
+  "annotate-block": { label: "Annotate hovered block", keybinding: "c" },
 };
 
 export function defaultKeybindings(): Record<ActionId, string | null> {

@@ -2,7 +2,7 @@ import { render } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation, Theme } from "../src/types.ts";
 import { ActionButton, isMac, useAction, useActionDispatcher } from "./actions.tsx";
-import { caretAt, findRange, selectionAnchor, type SelectionAnchor } from "./anchor-dom.ts";
+import { blockAnchor, caretAt, findRange, selectionAnchor, type SelectionAnchor } from "./anchor-dom.ts";
 
 const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown })
   .Highlight;
@@ -122,6 +122,7 @@ function App() {
   const [doc, setDoc] = useState<DocResponse | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [pending, setPending] = useState<SelectionAnchor | null>(null);
+  const [hovered, setHovered] = useState<Element | null>(null);
   const [focus, setFocus] = useState<{ id: string; tick: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<number | null>(null);
@@ -129,6 +130,9 @@ function App() {
   const docRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const rangesRef = useRef<{ id: string; range: Range }[]>([]);
+  const hoveredRef = useRef<Element | null>(null);
+  const dismissRef = useRef(false);
+  const draggedRef = useRef(false);
 
   const refreshAnnotations = async () => setAnnotations(await getAnnotations());
 
@@ -142,6 +146,8 @@ function App() {
     events.addEventListener("update", () => {
       const y = window.scrollY;
       setPending(null);
+      hoveredRef.current = null;
+      setHovered(null);
       void (async () => {
         setDoc(await getDoc());
         await refreshAnnotations();
@@ -169,7 +175,7 @@ function App() {
   }, [annotations, doc?.html]);
 
   useEffect(() => {
-    setHighlight("mdnote-pending", pending ? [pending.range] : []);
+    setHighlight("mdnote-pending", pending && !pending.block ? [pending.range] : []);
     return () => setHighlight("mdnote-pending", []);
   }, [pending]);
 
@@ -202,21 +208,38 @@ function App() {
     const onMouseUp = (e: MouseEvent) => {
       if (popoverRef.current?.contains(e.target as Node)) return;
       const container = docRef.current;
-      setPending(container ? selectionAnchor(container) : null);
+      const anchor = container ? selectionAnchor(container) : null;
+      // Chrome reports a collapsed selection during the click that follows a
+      // selection drag, so the click handler can't read it live; record here.
+      draggedRef.current = anchor !== null;
+      setPending(anchor);
     };
     const onMouseDown = (e: MouseEvent) => {
-      if (!popoverRef.current?.contains(e.target as Node)) setPending(null);
+      if (popoverRef.current?.contains(e.target as Node)) return;
+      dismissRef.current = popoverRef.current !== null;
+      draggedRef.current = false;
+      setPending(null);
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setPending(null);
     };
+    const onMouseMove = (e: MouseEvent) => {
+      const el = (e.target as Element | null)?.closest?.("[data-source-line]") ?? null;
+      const block = el && docRef.current?.contains(el) ? el : null;
+      if (block !== hoveredRef.current) {
+        hoveredRef.current = block;
+        setHovered(block);
+      }
+    };
     document.addEventListener("mouseup", onMouseUp);
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousemove", onMouseMove);
     return () => {
       document.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousemove", onMouseMove);
     };
   }, []);
 
@@ -233,11 +256,31 @@ function App() {
 
   const focusAnnotation = (id: string) => setFocus((f) => ({ id, tick: (f?.tick ?? 0) + 1 }));
 
+  const annotateBlock = (block: Element | null) => {
+    if (!block || !docRef.current?.contains(block)) return;
+    const anchor = blockAnchor(block);
+    if (anchor) setPending(anchor);
+  };
+
+  useAction("annotate-block", () => annotateBlock(hoveredRef.current));
+
   const onDocClick = (e: MouseEvent) => {
+    if (dismissRef.current || draggedRef.current) {
+      dismissRef.current = false;
+      draggedRef.current = false;
+      return;
+    }
+    const target = e.target as Element;
+    if (target.closest("a")) return;
     const caret = caretAt(e.clientX, e.clientY);
-    if (!caret) return;
-    const hit = rangesRef.current.find((r) => r.range.isPointInRange(caret.node, caret.offset));
-    if (hit) focusAnnotation(hit.id);
+    if (caret) {
+      const hit = rangesRef.current.find((r) => r.range.isPointInRange(caret.node, caret.offset));
+      if (hit) {
+        focusAnnotation(hit.id);
+        return;
+      }
+    }
+    annotateBlock(target.closest("[data-source-line]"));
   };
 
   const scrollTo = (id: string) => {
@@ -251,8 +294,32 @@ function App() {
     if (delta) window.scrollBy({ top: delta, behavior: "smooth" });
   };
 
+  const blockRect = pending?.block?.getBoundingClientRect();
+  const hoverRect = hovered?.getBoundingClientRect();
+
   return (
     <>
+      {hoverRect && (
+        <div
+          class="hover-bar"
+          style={{
+            left: `${hoverRect.left + window.scrollX - (hovered!.tagName === "LI" ? 26 : 12)}px`,
+            top: `${hoverRect.top + window.scrollY + 2}px`,
+            height: `${Math.max(0, hoverRect.height - 4)}px`,
+          }}
+        />
+      )}
+      {blockRect && (
+        <div
+          class="block-pending"
+          style={{
+            left: `${blockRect.left + window.scrollX - 8}px`,
+            top: `${blockRect.top + window.scrollY - 4}px`,
+            width: `${blockRect.width + 16}px`,
+            height: `${blockRect.height + 8}px`,
+          }}
+        />
+      )}
       <div
         id="doc"
         class="doc"
@@ -370,7 +437,7 @@ function Sidebar(props: {
 
       <ul class="annotation-list" ref={listRef}>
         {props.annotations.length === 0 && (
-          <li class="empty">No annotations yet. Select text in the document.</li>
+          <li class="empty">No annotations yet. Select text, or click a block to annotate it.</li>
         )}
         {props.annotations.map((a) => (
           <li

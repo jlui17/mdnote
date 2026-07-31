@@ -11,6 +11,7 @@
   --hl-open: light-dark(#f3dfa8, #4d3a08);
   --hl-stale: light-dark(#ccd0da, #33363b);
   --hl-pending: color-mix(in srgb, var(--accent) 28%, transparent);
+  --hover-bar: color-mix(in srgb, var(--accent) 55%, transparent);
   --hl-focus: light-dark(#eebe77, #7d5f0a);
   --badge-bg: light-dark(#ccd0da, #33363b);
   --badge-fg: light-dark(#5c5f77, #aeb3b9);
@@ -215,6 +216,27 @@ body {
 
 .doc input[type="checkbox"] {
   margin-right: 0.4em;
+}
+
+/* Annotation target preview: bars the innermost stamped block under the cursor.
+   Positioned from JS hover state, not CSS :hover — Chrome's :has(:hover) is
+   unreliable, and the chrome element keeps the doc island's DOM untouched. */
+.hover-bar {
+  position: absolute;
+  pointer-events: none;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--hover-bar);
+}
+
+/* Whole-block pending selection: one tinted box behind the block (z-index -1
+   keeps it under the text without touching the doc island's DOM). */
+.block-pending {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--hl-pending);
+  border-radius: var(--radius);
 }
 
 /* --- highlights -------------------------------------------------------- */

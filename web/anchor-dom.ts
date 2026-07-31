@@ -10,6 +10,8 @@ export interface SelectionAnchor {
   rect: DOMRect;
   /** Survives the native selection collapsing when the popover takes the click. */
   range: Range;
+  /** Set for whole-block anchors: the stamped element, so pending paints the block box, not the text. */
+  block?: Element;
 }
 
 export function parseStamp(el: Element): [number, number] | null {
@@ -117,6 +119,16 @@ export function findRange(
   range.setStart(first.node, first.start);
   range.setEnd(last.node, last.end);
   return range;
+}
+
+/** Anchor covering a stamped block's full contents. Null for stampless or text-free blocks. */
+export function blockAnchor(block: Element): SelectionAnchor | null {
+  const lineRange = parseStamp(block);
+  const anchorText = block.textContent ?? "";
+  if (!lineRange || !anchorText.trim()) return null;
+  const range = document.createRange();
+  range.selectNodeContents(block);
+  return { lineRange, anchorText, rect: block.getBoundingClientRect(), range, block };
 }
 
 function nearestStamp(doc: Element, node: Node | null): [number, number] | null {
