@@ -1,4 +1,5 @@
 import MarkdownIt, { type StateCore } from "markdown-it";
+import hljs from "highlight.js/lib/common";
 
 const TASK_MARKER = /^\[([ xX])\]\s+/;
 
@@ -34,7 +35,15 @@ function sourceLines(state: StateCore): boolean {
   return true;
 }
 
-const md = new MarkdownIt({ html: false, linkify: false, typographer: false });
+const md = new MarkdownIt({
+  html: false,
+  linkify: false,
+  typographer: false,
+  highlight: (code, lang) =>
+    lang && hljs.getLanguage(lang)
+      ? hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+      : "",
+});
 md.core.ruler.push("task_lists", taskLists);
 md.core.ruler.push("source_lines", sourceLines);
 

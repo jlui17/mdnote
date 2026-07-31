@@ -16,6 +16,14 @@
   --badge-fg: light-dark(#5c5f77, #aeb3b9);
   --badge-global-bg: light-dark(#e2d8f7, #2f2843);
   --badge-global-fg: light-dark(#8839ef, #c8a5f3);
+  --code-keyword: light-dark(#8839ef, #c795e0);
+  --code-string: light-dark(#40a02b, #8fb573);
+  --code-comment: light-dark(#7c7f93, #898e94);
+  --code-number: light-dark(#fe640b, #d8985f);
+  --code-function: light-dark(#1e66f5, #4b8dec);
+  --code-type: light-dark(#df8e1d, #d9b06b);
+  --code-variable: light-dark(#d20f39, #cf838f);
+  --code-meta: light-dark(#179299, #5fb3a1);
   --radius: 6px;
   --sidebar: 340px;
 }
@@ -134,6 +142,50 @@ body {
   border: 0;
   padding: 0;
   font-size: 0.85em;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-name {
+  color: var(--code-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-quote,
+.hljs-addition {
+  color: var(--code-string);
+}
+.hljs-comment {
+  color: var(--code-comment);
+  font-style: italic;
+}
+.hljs-number,
+.hljs-symbol {
+  color: var(--code-number);
+}
+.hljs-title,
+.hljs-section {
+  color: var(--code-function);
+}
+.hljs-type,
+.hljs-built_in,
+.hljs-title.class_ {
+  color: var(--code-type);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-property,
+.hljs-deletion {
+  color: var(--code-variable);
+}
+.hljs-meta,
+.hljs-doctag,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: var(--code-meta);
 }
 
 .doc table {

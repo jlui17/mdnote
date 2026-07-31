@@ -18,6 +18,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "highlight.js": "^11.11.1",
     "markdown-it": "^15.0.0",
     "preact": "^10.29.7"
   }

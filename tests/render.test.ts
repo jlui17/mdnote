@@ -72,6 +72,15 @@ describe("render", () => {
     expect(html).toContain('<code class="language-js">');
   });
 
+  test("known fence languages get hljs spans, unknown stay plain-escaped", () => {
+    const ts = render('```ts\nconst x: string = "hi";\n```\n');
+    expect(ts).toContain('<span class="hljs-keyword">const</span>');
+    expect(ts).toContain('<pre data-source-line="1-3">');
+    const unknown = render("```nosuchlang\n<b>raw</b>\n```\n");
+    expect(unknown).not.toContain("hljs-");
+    expect(unknown).toContain("&lt;b&gt;raw&lt;/b&gt;");
+  });
+
   test("indented code stamps <pre> once", () => {
     const html = render("para\n\n    indented\n");
     expect(html).toContain('<pre data-source-line="3-3">');
