@@ -148,6 +148,19 @@ describe("reanchor", () => {
     expect(out[0]!.lineRange).toEqual([15, 15]);
   });
 
+  test("the block marker survives re-anchoring, open or stale", () => {
+    const out = reanchor(doc, [
+      ann({ id: "moved", anchorText: "Filler paragraph.", lineRange: [1, 1], block: true }),
+      ann({ id: "lost", anchorText: "deleted sentence", lineRange: [3, 3], block: true }),
+      ann({ id: "text", anchorText: "Filler paragraph.", lineRange: [13, 13] }),
+    ]);
+    expect(out.map((a) => [a.status, a.block])).toEqual([
+      ["open", true],
+      ["stale", true],
+      ["open", undefined],
+    ]);
+  });
+
   test("input annotations are not mutated", () => {
     const input = ann({ anchorText: "gone forever", lineRange: [2, 2] });
     reanchor(doc, [input]);

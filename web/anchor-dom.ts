@@ -121,6 +121,20 @@ export function findRange(
   return range;
 }
 
+/** The stamped block holding `anchorText`, for painting a block annotation's box. */
+export function findBlock(
+  doc: Element,
+  anchorText: string,
+  lineRange: [number, number] | null,
+): Element | null {
+  const range = findRange(doc, anchorText, lineRange);
+  if (!range) return null;
+  const node = range.commonAncestorContainer;
+  const el = node instanceof Element ? node : node.parentElement;
+  const block = el?.closest("[data-source-line]") ?? null;
+  return block && doc.contains(block) ? block : null;
+}
+
 /** Anchor covering a stamped block's full contents. Null for stampless or text-free blocks. */
 export function blockAnchor(block: Element): SelectionAnchor | null {
   const lineRange = parseStamp(block);

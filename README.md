@@ -108,6 +108,7 @@ interface Annotation {
   note: string;
   createdAt: string;
   status: AnnotationStatus;
+  block?: true;                       // set when the note targets a whole block, not a text span
 }
 ```
 

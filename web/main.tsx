@@ -1,6 +1,13 @@
 import { render, type RefObject } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation, Theme } from "../src/types.ts";
+import type {
+  Annotation,
+  AnnotationPatch,
+  AnnotationStatus,
+  DocResponse,
+  NewAnnotation,
+  Theme,
+} from "../src/types.ts";
 import {
   ACTIONS,
   ActionButton,
@@ -12,7 +19,14 @@ import {
   useActionDispatcher,
   type ActionId,
 } from "./actions.tsx";
-import { blockAnchor, caretAt, findRange, selectionAnchor, type SelectionAnchor } from "./anchor-dom.ts";
+import {
+  blockAnchor,
+  caretAt,
+  findBlock,
+  findRange,
+  selectionAnchor,
+  type SelectionAnchor,
+} from "./anchor-dom.ts";
 
 const HighlightCtor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown })
   .Highlight;
@@ -143,6 +157,37 @@ function blockBox(el: Element): { left: number; top: number; width: number; heig
   return { left, top: r.top, width: r.right - left, height: r.height };
 }
 
+interface Box {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** `el`'s block box in page coordinates, grown by the halo every block box wears. */
+function paddedBox(el: Element): Box {
+  const r = blockBox(el);
+  return {
+    left: r.left + window.scrollX - 8,
+    top: r.top + window.scrollY - 4,
+    width: r.width + 16,
+    height: r.height + 8,
+  };
+}
+
+function viewportRect(b: Box): DOMRect {
+  return new DOMRect(b.left - window.scrollX, b.top - window.scrollY, b.width, b.height);
+}
+
+function boxStyle(b: Box) {
+  return {
+    left: `${b.left}px`,
+    top: `${b.top}px`,
+    width: `${b.width}px`,
+    height: `${b.height}px`,
+  };
+}
+
 function snippet(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > 160 ? flat.slice(0, 160) + "…" : flat;
@@ -204,7 +249,7 @@ function useHighlights(
     const open: Range[] = [];
     const stale: Range[] = [];
     for (const a of annotations) {
-      if (!a.anchorText) continue;
+      if (!a.anchorText || a.block) continue;
       const range = findRange(container, a.anchorText, a.lineRange);
       if (!range) continue;
       rangesRef.current.push({ id: a.id, range });
@@ -232,6 +277,39 @@ function useHighlights(
   }, [focus]);
 
   return rangesRef;
+}
+
+/** Block annotations paint a box, not a text highlight; the box is chrome outside
+ *  #doc, so it is measured from the block element and re-measured whenever the
+ *  layout can have moved (doc reload, resize). */
+function useBlockBoxes(
+  docRef: RefObject<HTMLDivElement>,
+  annotations: Annotation[],
+  docHtml: string | undefined,
+) {
+  const blocksRef = useRef<{ id: string; el: Element; status: AnnotationStatus }[]>([]);
+  const [boxes, setBoxes] = useState<{ id: string; status: AnnotationStatus; box: Box }[]>([]);
+
+  const measure = () =>
+    setBoxes(blocksRef.current.map((b) => ({ id: b.id, status: b.status, box: paddedBox(b.el) })));
+
+  useLayoutEffect(() => {
+    const container = docRef.current;
+    blocksRef.current = [];
+    for (const a of container ? annotations : []) {
+      if (!a.block || !a.anchorText) continue;
+      const el = findBlock(container!, a.anchorText, a.lineRange);
+      if (el) blocksRef.current.push({ id: a.id, el, status: a.status });
+    }
+    measure();
+  }, [annotations, docHtml]);
+
+  useEffect(() => {
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  return boxes;
 }
 
 function useDocEvents(args: {
@@ -327,6 +405,7 @@ function App() {
     setOpenAnn(null);
   });
   const rangesRef = useHighlights(docRef, annotations, doc?.html, pending, focus);
+  const blockBoxes = useBlockBoxes(docRef, annotations, doc?.html);
   const { dismissRef, draggedRef } = useDocEvents({
     docRef,
     popoverRef,
@@ -414,12 +493,27 @@ function App() {
         return;
       }
     }
+    const inBox = blockBoxes.find(
+      ({ box }) =>
+        e.pageX >= box.left &&
+        e.pageX <= box.left + box.width &&
+        e.pageY >= box.top &&
+        e.pageY <= box.top + box.height,
+    );
+    if (inBox) {
+      focusAnnotation(inBox.id);
+      setOpenAnn({ id: inBox.id, rect: viewportRect(inBox.box), editing: false });
+      return;
+    }
     annotateBlock(target.closest("[data-source-line]"));
   };
 
   const scrollTo = (id: string) => {
     focusAnnotation(id);
-    const rect = rangesRef.current.find((r) => r.id === id)?.range.getBoundingClientRect();
+    const box = blockBoxes.find((b) => b.id === id)?.box;
+    const rect = box
+      ? viewportRect(box)
+      : rangesRef.current.find((r) => r.id === id)?.range.getBoundingClientRect();
     if (!rect) return;
     const vh = window.innerHeight;
     let delta = 0;
@@ -428,7 +522,7 @@ function App() {
     if (delta) window.scrollBy({ top: delta, behavior: "smooth" });
   };
 
-  const blockRect = pending?.block ? blockBox(pending.block) : null;
+  const blockRect = pending?.block ? paddedBox(pending.block) : null;
   const hoverRect = hovered?.isConnected ? blockBox(hovered) : null;
   const openAnnotation = openAnn ? annotations.find((a) => a.id === openAnn.id) : undefined;
 
@@ -444,17 +538,10 @@ function App() {
           }}
         />
       )}
-      {blockRect && (
-        <div
-          class="block-pending"
-          style={{
-            left: `${blockRect.left + window.scrollX - 8}px`,
-            top: `${blockRect.top + window.scrollY - 4}px`,
-            width: `${blockRect.width + 16}px`,
-            height: `${blockRect.height + 8}px`,
-          }}
-        />
-      )}
+      {blockBoxes.map(({ id, status, box }) => (
+        <div key={id} class={`block-box ${status}`} style={boxStyle(box)} />
+      ))}
+      {blockRect && <div class="block-pending" style={boxStyle(blockRect)} />}
       <div
         id="doc"
         class="doc"
@@ -493,7 +580,12 @@ function App() {
           popoverRef={popoverRef}
           rect={pending.rect}
           onPick={(note) =>
-            submit({ lineRange: pending.lineRange, anchorText: pending.anchorText, note })
+            submit({
+              lineRange: pending.lineRange,
+              anchorText: pending.anchorText,
+              note,
+              ...(pending.block ? { block: true as const } : {}),
+            })
           }
           onCancel={() => setPending(null)}
         />

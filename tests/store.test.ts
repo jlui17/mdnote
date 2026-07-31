@@ -45,6 +45,22 @@ test("write/read round-trip", () => {
   expect(readSidecar(file)).toEqual(sidecar);
 });
 
+test("the block marker round-trips, and text annotations stay unmarked", () => {
+  const file = setup();
+  const base = { note: "n", createdAt: new Date().toISOString(), status: "open" as const };
+  const sidecar: Sidecar = {
+    version: 1,
+    annotations: [
+      { id: "block", lineRange: [1, 1], anchorText: "hello", ...base, block: true },
+      { id: "text", lineRange: [1, 1], anchorText: "hel", ...base },
+    ],
+  };
+  writeSidecar(file, sidecar);
+  const [block, text] = readSidecar(file).annotations;
+  expect(block!.block).toBe(true);
+  expect("block" in text!).toBe(false);
+});
+
 test("write is atomic: no leftover temp file", () => {
   const file = setup();
   writeSidecar(file, { version: 1, annotations: [] });

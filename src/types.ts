@@ -27,6 +27,9 @@ export interface Annotation {
   note: string;
   createdAt: string;
   status: AnnotationStatus;
+  /** Set when the annotation came from a whole-block gesture; presentation paints a
+   *  block box instead of a text highlight. Absent on text-selection annotations. */
+  block?: true;
 }
 
 export interface Sidecar {
@@ -44,6 +47,7 @@ export interface NewAnnotation {
   lineRange: [number, number] | null;
   anchorText: string | null;
   note: string;
+  block?: true;
 }
 
 export interface DocResponse {

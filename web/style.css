@@ -238,12 +238,26 @@ body {
 
 /* Whole-block pending selection: one tinted box behind the block (z-index -1
    keeps it under the text without touching the doc island's DOM). */
-.block-pending {
+.block-pending,
+.block-box {
   position: absolute;
   z-index: -1;
   pointer-events: none;
-  background: var(--hl-pending);
   border-radius: var(--radius);
+}
+
+.block-pending {
+  background: var(--hl-pending);
+}
+
+/* Saved whole-block annotation: the box is the whole visual, never a text
+   highlight as well, so one look means one thing. */
+.block-box.open {
+  background: var(--hl-open);
+}
+
+.block-box.stale {
+  background: var(--hl-stale);
 }
 
 /* --- file index --------------------------------------------------------- */
