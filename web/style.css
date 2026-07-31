@@ -1,21 +1,21 @@
 :root {
   color-scheme: light dark;
-  --bg: light-dark(#fdfdfc, #171614);
-  --fg: light-dark(#1c1b19, #e6e4df);
-  --muted: light-dark(#6b6a66, #98968f);
-  --line: light-dark(#e2e0db, #3a3936);
-  --accent: light-dark(#2f6fd0, #6ea8f7);
-  --panel: light-dark(#f7f6f3, #201f1d);
-  --surface: light-dark(#ffffff, #262523);
+  --bg: light-dark(#eff1f5, #18191b);
+  --fg: light-dark(#4c4f69, #e0e1e4);
+  --muted: light-dark(#6c6f85, #898e94);
+  --line: light-dark(#ccd0da, #33363b);
+  --accent: light-dark(#1e66f5, #4b8dec);
+  --panel: light-dark(#e6e9ef, #1e1f22);
+  --surface: light-dark(#eff1f5, #252629);
   --shadow: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.55));
-  --hl-open: light-dark(#fff2a8, #5a4a14);
-  --hl-stale: light-dark(#ececec, #3a3936);
+  --hl-open: light-dark(#f3dfa8, #4d3a08);
+  --hl-stale: light-dark(#ccd0da, #33363b);
   --hl-pending: color-mix(in srgb, var(--accent) 28%, transparent);
-  --hl-focus: light-dark(#ffd54f, #7d6410);
-  --badge-bg: light-dark(#e8e8e4, #3a3936);
-  --badge-fg: light-dark(#444444, #b5b3ac);
-  --badge-global-bg: light-dark(#efe3ff, #34254f);
-  --badge-global-fg: light-dark(#5a2c9c, #c9aef0);
+  --hl-focus: light-dark(#eebe77, #7d5f0a);
+  --badge-bg: light-dark(#ccd0da, #33363b);
+  --badge-fg: light-dark(#5c5f77, #aeb3b9);
+  --badge-global-bg: light-dark(#e2d8f7, #2f2843);
+  --badge-global-fg: light-dark(#8839ef, #c8a5f3);
   --radius: 6px;
   --sidebar: 340px;
 }
