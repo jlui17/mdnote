@@ -2,7 +2,7 @@ import { test, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { lockPath, readLiveLock, removeLock, writeLock } from "../src/lock.ts";
+import { lockPath, logPath, readLiveLock, removeLock, writeLock } from "../src/lock.ts";
 
 let dir: string;
 
@@ -15,11 +15,12 @@ afterEach(() => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
-test("lockPath honors XDG_STATE_HOME", () => {
+test("the lock and log live in the state dir, honoring XDG_STATE_HOME", () => {
   const prev = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = "/x/state";
   try {
     expect(lockPath()).toBe("/x/state/mdnote/server.json");
+    expect(logPath()).toBe("/x/state/mdnote/server.log");
   } finally {
     if (prev === undefined) delete process.env.XDG_STATE_HOME;
     else process.env.XDG_STATE_HOME = prev;

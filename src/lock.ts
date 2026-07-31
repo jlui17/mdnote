@@ -3,9 +3,17 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ServerLock } from "./types.ts";
 
-export function lockPath(): string {
+function stateDir(): string {
   const base = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
-  return join(base, "mdnote", "server.json");
+  return join(base, "mdnote");
+}
+
+export function lockPath(): string {
+  return join(stateDir(), "server.json");
+}
+
+export function logPath(): string {
+  return join(stateDir(), "server.log");
 }
 
 /** The recorded server, or null when the lock is absent, unreadable, or names a dead pid. */

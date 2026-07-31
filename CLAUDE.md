@@ -4,13 +4,13 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 
 ## Map (runtime order)
 
-- `src/cli.ts` — entry (`mdnote <file.md>` / `comments` / `clear` / `stop`; any non-subcommand argv is a review invocation), find-or-attach: it POSTs `/api/open` to the server named by the global lock, or spawns itself detached with the internal `--serve` flag (the serve process is the only one that runs `startServer`, writes the lock, and cleans it up). Review dynamic-imports `server.ts` so `comments`/`clear` keep working even when the server is broken.
-- `src/lock.ts` — the global lock (`~/.local/state/mdnote/server.json`, `$XDG_STATE_HOME` honored): `{host, port, pid}` read/write plus pid-liveness.
+- `src/cli.ts` — entry (`mdnote <file.md>` / `comments` / `clear` / `stop`; any non-subcommand argv is a review invocation), find-or-attach: it POSTs `/api/open` to the server named by the global lock, or spawns itself detached with the internal `--serve` flag, stdout/stderr pointed at the state-dir log (the serve process is the only one that runs `startServer`, writes the lock, and cleans it up). Review dynamic-imports `server.ts` so `comments`/`clear` keep working even when the server is broken.
+- `src/lock.ts` — the state dir (`~/.local/state/mdnote`, `$XDG_STATE_HOME` honored) and what lives in it: the global lock `server.json` (`{host, port, pid}` read/write plus pid-liveness) and `logPath()` for `server.log`.
 - `src/config.ts` — reads `~/.config/mdnote/settings.json` (`$XDG_CONFIG_HOME` honored), validates warn-and-drop per key, merges over defaults into a `ResolvedConfig`.
 - `src/actions.ts` — pure action catalog (`ActionId`s, labels, default keybindings) and keybinding spec parsing; shared by `config.ts` and the frontend.
 - `src/render.ts` — markdown-it with a rule stamping `data-source-line="start-end"` on block elements.
 - `src/anchor.ts` — `locate()` matches rendered-text selections against Markdown source; `reanchor()` re-resolves annotations after edits. The load-bearing module: staleness is `locate()` returning null.
-- `src/server.ts` — Bun.serve API + SSE + file watchers over a registry of open files (path → SSE clients); bundles the frontend at startup.
+- `src/server.ts` — Bun.serve API + SSE + file watchers over a registry of open files (path → SSE clients); bundles the frontend at startup, runs the idle clock.
 - `src/store.ts` — sidecar JSON read/write (`<file>.mdnote.json`), atomic via temp-file + rename.
 - `src/types.ts` — shared types. Import from here; never redeclare.
 - `web/anchor-dom.ts` — framework-free DOM math (selection → `data-source-line` → line ranges, text-node search for highlight ranges). No Preact imports, by design.
@@ -35,9 +35,11 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 - **The shebang on `src/cli.ts` is load-bearing.** `bun link` symlinks the bin straight to the file; without `#!/usr/bin/env bun` the shell executes it as a shell script.
 - **Watchers are `fs.watch` on the parent directory, filtered by basename** (50ms debounce per file), not per-file watches — editors and agents replace files by rename, which per-file watches lose track of. One watcher per directory serves every registered file in it, created lazily when that file's first SSE client connects.
 - **The global lock can be stale.** A lock whose pid is dead counts as no server everywhere (cold start, `stop`, `comments`/`clear`). `comments`/`clear` give the API ~300ms and fall back to reading the sidecar directly on a dead lock, a timeout, or a non-2xx (the server 404s files it hasn't registered); treat the sidecar as the source of truth, the API as an optimization.
+- **Only SSE clients hold the server open.** The idle clock (5 min, `MDNOTE_IDLE_TIMEOUT_MS` overrides it for tests) runs whenever the total client count across every registered file is zero, starting at boot, so a server nobody opens a tab on dies on its own; `onIdle` (the serve process passes `process.exit(0)`) is what makes the clock exist at all, so a `startServer` call without it never times out. A registration via `/api/open` isn't a client and doesn't stop the clock.
+- **The detached server's stdout/stderr go to `server.log` in the state dir**, truncated per cold start by the spawning CLI (it opens the fd with `"w"`), so bundle and watcher warnings are diagnosable after the fact.
 - **The lock appearing is the cold-start readiness signal.** The serve process writes it only after `Bun.serve` is listening, so the spawning CLI polls for the lock file rather than the port.
 - **JSX is Preact** via root tsconfig (`jsxImportSource: preact`), which `Bun.build` picks up. Don't add a per-file pragma or React types.
 
 ## Verifying changes
 
-`bun test` (74 tests: render stamps, anchor matching, sidecar, style tokens, server registry/SSE scoping, lock liveness) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a browser poke — use the `browser-test` skill (drives the real UI headlessly with agent-browser: drag-select, annotate, edit the file, assert sidecar/highlights).
+`bun test` (75 tests: render stamps, anchor matching, sidecar, style tokens, server registry/SSE scoping, idle shutdown, lock liveness) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a browser poke — use the `browser-test` skill (drives the real UI headlessly with agent-browser: drag-select, annotate, edit the file, assert sidecar/highlights).

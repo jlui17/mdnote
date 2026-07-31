@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { readLiveLock, removeLock, writeLock } from "./lock.ts";
+import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { logPath, readLiveLock, removeLock, writeLock } from "./lock.ts";
 import { readSidecar, writeSidecar } from "./store.ts";
 import type { Annotation, ServerLock } from "./types.ts";
 
@@ -69,12 +69,16 @@ async function openOnServer(lock: ServerLock, file: string): Promise<string | nu
 }
 
 async function spawnServer(file: string, host: string, port: number): Promise<ServerLock> {
+  const log = logPath();
+  mkdirSync(dirname(log), { recursive: true });
+  const fd = openSync(log, "w");
   const child = spawn(
     process.execPath,
     [import.meta.path, file, "--serve", "--host", host, "--port", String(port)],
-    { detached: true, stdio: "ignore" },
+    { detached: true, stdio: ["ignore", fd, fd] },
   );
   child.unref();
+  closeSync(fd);
 
   for (let i = 0; i < 50; i++) {
     await Bun.sleep(100);
@@ -86,7 +90,7 @@ async function spawnServer(file: string, host: string, port: number): Promise<Se
 
 async function cmdServe(file: string, host: string, port: number) {
   const { startServer } = await import("./server.ts");
-  const server = await startServer({ file, host, port });
+  const server = await startServer({ file, host, port, onIdle: () => process.exit(0) });
 
   writeLock({ host, port: server.port, pid: process.pid });
   process.on("exit", () => removeLock());

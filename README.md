@@ -17,7 +17,7 @@ bun link          # puts `mdnote` on your PATH (needs ~/.bun/bin in PATH)
 mdnote notes.md
 ```
 
-The browser opens on the rendered doc. One background server per machine serves every file you open this way — the command exits right after printing the URL, and `mdnote stop` shuts the server down. Highlight a span and type a note in the popover — "make this punchier", "remove this paragraph" — and hit ⌘↩ (Ctrl+Enter elsewhere) or the Add button (or click "Add general note" for a doc-wide instruction not tied to a span). To annotate a whole block (paragraph, heading, list item, code fence), hover it — an accent bar marks the target — and click it or press `c`; hovering a list or blockquote's own gutter targets the whole container. Clicking annotated text jumps to its note in the sidebar; the ✎ button (or double-clicking the note) edits it in place.
+The browser opens on the rendered doc. One background server per machine serves every file you open this way — the command exits right after printing the URL, and the server shuts itself down 5 minutes after the last tab closes (`mdnote stop` ends it now). Highlight a span and type a note in the popover — "make this punchier", "remove this paragraph" — and hit ⌘↩ (Ctrl+Enter elsewhere) or the Add button (or click "Add general note" for a doc-wide instruction not tied to a span). To annotate a whole block (paragraph, heading, list item, code fence), hover it — an accent bar marks the target — and click it or press `c`; hovering a list or blockquote's own gutter targets the whole container. Clicking annotated text jumps to its note in the sidebar; the ✎ button (or double-clicking the note) edits it in place.
 
 The page opens in dark mode (or whatever `theme` you set in [Settings](#settings)); the ◐/☀/☾ button in the sidebar switches it for the session.
 
@@ -74,7 +74,7 @@ An optional `~/.config/mdnote/settings.json` (honors `$XDG_CONFIG_HOME`) overrid
 - **`theme`** — `"dark"` (the default), `"light"`, or `"system"` (follow the OS preference).
 - **`keybindings`** — action → shortcut, merged over the defaults; `null` unbinds a default. A spec is `mod`/`shift`/`alt` modifiers plus a key, joined by `+` (`mod` is ⌘ on Mac, Ctrl elsewhere). Actions: `copy-prompt` (default `mod+shift+c`), `annotate-block` (default `c`), `delete-annotation` (default `d`), and `toggle-theme` (unbound by default).
 
-An invalid entry warns in the server log and falls back to the default for that key. Edits apply on page reload; no server restart needed.
+An invalid entry warns in the server log (`~/.local/state/mdnote/server.log`, truncated each time the server starts) and falls back to the default for that key. Edits apply on page reload; no server restart needed.
 
 ## Remote use
 
@@ -89,7 +89,7 @@ The bind flags take effect on a cold start, so `mdnote stop` first if a loopback
 ## CLI reference
 
 - **`mdnote <file.md> [--host H] [--port P]`** — opens the file in the browser (loopback only) and exits, starting the background server first if none is running. Defaults to `127.0.0.1:4820`; the document lives at the file's absolute path on that port. `--host`/`--port` apply to a cold start; passing either with values that disagree with the running server is an error telling you to `mdnote stop` first.
-- **`mdnote stop`** — stops the background server.
+- **`mdnote stop`** — stops the background server. It also stops itself after 5 minutes with no open tab, and the next `mdnote <file.md>` cold-starts it again.
 - **`mdnote list`** — lists every file open on the running server with its URL; says so and exits 0 if no server is running.
 - **`mdnote comments <file.md> [--json]`** — lists annotations. `--json` prints `{file, annotations}`; without it, a human-readable list.
 - **`mdnote clear <file.md> [--ids ID[,ID...]]`** — clears the listed annotations by `--ids` (comma-separated), or all annotations if omitted.

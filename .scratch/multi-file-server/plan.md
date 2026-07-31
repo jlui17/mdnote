@@ -86,12 +86,12 @@ terminal.
 
 **Blocked by:** 03.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Server with no connected tabs exits within ~5 minutes and removes the lock; an open tab keeps it alive indefinitely
-- [ ] Startup warnings (e.g. bundle failure) appear in the state-dir log; the log truncates on restart
-- [ ] A `mdnote <file>` after idle-exit cold-starts cleanly and the old document URL still works (auto-register)
-- [ ] `bun test` and `bunx tsc --noEmit` clean
+- [x] Server with no connected tabs exits within ~5 minutes and removes the lock; an open tab keeps it alive indefinitely
+- [x] Startup warnings (e.g. bundle failure) appear in the state-dir log; the log truncates on restart
+- [x] A `mdnote <file>` after idle-exit cold-starts cleanly and the old document URL still works (auto-register)
+- [x] `bun test` and `bunx tsc --noEmit` clean
 
 ## 05 — `/` index and `mdnote list`
 
