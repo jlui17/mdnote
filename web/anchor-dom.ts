@@ -135,6 +135,26 @@ export function findBlock(
   return block && doc.contains(block) ? block : null;
 }
 
+/** True when `a` and `b` are the same text after collapsing whitespace runs — the same
+ *  equivalence `locateSegments` matches against, reused so block promotion agrees with anchoring. */
+export function sameNormalizedText(a: string, b: string): boolean {
+  return normalize(a).norm === normalize(b).norm;
+}
+
+/** The stamped ancestor, if any, whose full text exactly equals the selection's, walking the
+ *  selection's stamped ancestor chain innermost-first — so a full-list sweep (whose common
+ *  ancestor is the list) promotes to the list, not a first item that only partly matches. */
+export function wholeBlockMatch(doc: Element, range: Range, anchorText: string): Element | null {
+  const start = range.commonAncestorContainer;
+  const base = start instanceof Element ? start : start.parentElement;
+  let candidate = base?.closest("[data-source-line]") ?? null;
+  while (candidate && doc.contains(candidate)) {
+    if (sameNormalizedText(candidate.textContent ?? "", anchorText)) return candidate;
+    candidate = candidate.parentElement?.closest("[data-source-line]") ?? null;
+  }
+  return null;
+}
+
 /** Anchor covering a stamped block's full contents. Null for stampless or text-free blocks. */
 export function blockAnchor(block: Element): SelectionAnchor | null {
   const lineRange = parseStamp(block);
@@ -162,6 +182,9 @@ export function selectionAnchor(doc: Element): SelectionAnchor | null {
   if (!doc.contains(range.startContainer) || !doc.contains(range.endContainer)) return null;
   const anchorText = sel.toString();
   if (!anchorText.trim()) return null;
+  const block = wholeBlockMatch(doc, range, anchorText);
+  const promoted = block && blockAnchor(block);
+  if (promoted) return promoted;
   const a = nearestStamp(doc, range.startContainer);
   const b = nearestStamp(doc, range.endContainer);
   if (!a && !b) return null;
