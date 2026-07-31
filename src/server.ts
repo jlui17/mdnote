@@ -323,6 +323,7 @@ export async function startServer(opts: {
           note: body.note,
           createdAt: new Date().toISOString(),
           status: "open",
+          ...(body.block && body.anchorText ? { block: true as const } : {}),
         };
         const sidecar = readSidecar(file);
         sidecar.annotations.push(created);

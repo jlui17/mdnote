@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isMarkdownPath, pathToUrl, startServer } from "../src/server.ts";
+import type { Annotation } from "../src/types.ts";
 
 let dir: string;
 let file: string;
@@ -85,6 +86,24 @@ describe("/api routes carry file identity", () => {
     expect(annotations.map((a) => a.id)).toContain(id);
 
     expect((await fetch(`${base}/api/annotations/${id}${q}`, { method: "DELETE" })).status).toBe(204);
+  });
+
+  test("POST carries the block marker through, and omits it otherwise", async () => {
+    const q = `?file=${encodeURIComponent(file)}`;
+    const post = (body: unknown) =>
+      fetch(`${base}/api/annotations${q}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }).then((r) => r.json() as Promise<Annotation>);
+
+    const blocky = await post({ lineRange: [1, 1], anchorText: "Hello", note: "hi", block: true });
+    const texty = await post({ lineRange: [1, 1], anchorText: "Hello", note: "hi" });
+    expect(blocky.block).toBe(true);
+    expect("block" in texty).toBe(false);
+
+    for (const a of [blocky, texty])
+      await fetch(`${base}/api/annotations/${a.id}${q}`, { method: "DELETE" });
   });
 });
 
