@@ -11,6 +11,7 @@
   --hl-open: light-dark(#fff2a8, #5a4a14);
   --hl-stale: light-dark(#ececec, #3a3936);
   --hl-pending: color-mix(in srgb, var(--accent) 28%, transparent);
+  --hl-focus: light-dark(#ffd54f, #7d6410);
   --badge-bg: light-dark(#e8e8e4, #3a3936);
   --badge-fg: light-dark(#444444, #b5b3ac);
   --badge-global-bg: light-dark(#efe3ff, #34254f);
@@ -179,6 +180,10 @@ body {
   background-color: var(--hl-pending);
 }
 
+::highlight(mdnote-focus) {
+  background-color: var(--hl-focus);
+}
+
 /* --- sidebar ----------------------------------------------------------- */
 
 .sidebar {
@@ -236,7 +241,7 @@ textarea {
   gap: 0.5rem;
 }
 
-.copy-prompt kbd {
+button kbd {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.75rem;
   color: var(--muted);

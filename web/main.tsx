@@ -10,10 +10,13 @@ const highlights =
     ? (CSS as unknown as { highlights: Map<string, unknown> }).highlights
     : null;
 
-function setHighlight(name: string, ranges: Range[]): void {
+function setHighlight(name: string, ranges: Range[], priority = 0): void {
   if (!highlights || !HighlightCtor) return;
-  if (ranges.length) highlights.set(name, new HighlightCtor(...ranges));
-  else highlights.delete(name);
+  if (ranges.length) {
+    const h = new HighlightCtor(...ranges) as { priority: number };
+    h.priority = priority;
+    highlights.set(name, h);
+  } else highlights.delete(name);
 }
 
 async function getDoc(): Promise<DocResponse | null> {
@@ -176,6 +179,18 @@ function App() {
     return () => setHighlight("mdnote-pending", []);
   }, [pending]);
 
+  useEffect(() => {
+    if (!focus) return;
+    const range = rangesRef.current.find((r) => r.id === focus.id)?.range;
+    if (!range) return;
+    setHighlight("mdnote-focus", [range], 1);
+    const t = window.setTimeout(() => setHighlight("mdnote-focus", []), 1200);
+    return () => {
+      clearTimeout(t);
+      setHighlight("mdnote-focus", []);
+    };
+  }, [focus]);
+
   const copyPrompt = () => {
     const path = doc?.path;
     if (!path) return;
@@ -242,7 +257,12 @@ function App() {
   const scrollTo = (id: string) => {
     focusAnnotation(id);
     const rect = rangesRef.current.find((r) => r.id === id)?.range.getBoundingClientRect();
-    if (rect) window.scrollBy({ top: rect.top - window.innerHeight / 2, behavior: "smooth" });
+    if (!rect) return;
+    const vh = window.innerHeight;
+    let delta = 0;
+    if (rect.top < vh * 0.1) delta = rect.top - vh * 0.2;
+    else if (rect.bottom > vh * 0.9) delta = rect.bottom - vh * 0.8;
+    if (delta) window.scrollBy({ top: delta, behavior: "smooth" });
   };
 
   return (
@@ -477,7 +497,7 @@ function Popover(props: {
     <div class="popover" ref={props.popoverRef} style={{ left: `${pos.left}px`, top: `${pos.top}px` }}>
       <textarea
         rows={2}
-        placeholder={`Note… (${isMac ? "⌘↩" : "Ctrl+↩"} to add)`}
+        placeholder="Note…"
         value={note}
         onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
         onKeyDown={(e) => {
@@ -487,7 +507,7 @@ function Popover(props: {
       />
       <div class="row">
         <button type="button" disabled={!note.trim()} onClick={() => props.onPick(note.trim())}>
-          Add note
+          Add note <kbd>{isMac ? "⌘↩" : "Ctrl+↩"}</kbd>
         </button>
       </div>
     </div>
