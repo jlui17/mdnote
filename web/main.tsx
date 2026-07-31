@@ -717,8 +717,8 @@ function AnnotationPopover(props: {
         <>
           {props.annotation.note && <p class="popover-note">{props.annotation.note}</p>}
           <div class="row">
-            <ActionButton id="edit-annotation" />
-            <ActionButton id="delete-annotation" />
+            <ActionButton id="edit-annotation" label="Edit" />
+            <ActionButton id="delete-annotation" label="Delete" />
           </div>
         </>
       )}
