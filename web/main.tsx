@@ -108,6 +108,15 @@ function ThemeToggle() {
   );
 }
 
+/** Block box extended to the parent list's left edge, covering markers, which render outside the li box. */
+function blockBox(el: Element): { left: number; top: number; width: number; height: number } {
+  const r = el.getBoundingClientRect();
+  if (el.tagName !== "LI") return r;
+  const list = el.parentElement?.getBoundingClientRect();
+  const left = list ? Math.min(r.left, list.left) : r.left;
+  return { left, top: r.top, width: r.right - left, height: r.height };
+}
+
 function snippet(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > 160 ? flat.slice(0, 160) + "…" : flat;
@@ -294,8 +303,8 @@ function App() {
     if (delta) window.scrollBy({ top: delta, behavior: "smooth" });
   };
 
-  const blockRect = pending?.block?.getBoundingClientRect();
-  const hoverRect = hovered?.getBoundingClientRect();
+  const blockRect = pending?.block ? blockBox(pending.block) : null;
+  const hoverRect = hovered ? blockBox(hovered) : null;
 
   return (
     <>
@@ -303,7 +312,7 @@ function App() {
         <div
           class="hover-bar"
           style={{
-            left: `${hoverRect.left + window.scrollX - (hovered!.tagName === "LI" ? 26 : 12)}px`,
+            left: `${hoverRect.left + window.scrollX - 12}px`,
             top: `${hoverRect.top + window.scrollY + 2}px`,
             height: `${Math.max(0, hoverRect.height - 4)}px`,
           }}
