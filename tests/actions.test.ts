@@ -47,6 +47,7 @@ test("bindingFor reads the resolved map, defaulting to the catalog", () => {
       "toggle-theme": null,
       "annotate-block": "c",
       "annotate-document": "shift+c",
+      "edit-annotation": "e",
       "delete-annotation": "d",
     }),
   ).toEqual(parseKeybinding("mod+p"));
@@ -56,6 +57,7 @@ test("bindingFor reads the resolved map, defaulting to the catalog", () => {
       "toggle-theme": "mod+t",
       "annotate-block": "c",
       "annotate-document": "shift+c",
+      "edit-annotation": "e",
       "delete-annotation": "d",
     }),
   ).toBeNull();

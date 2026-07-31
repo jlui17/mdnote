@@ -282,7 +282,9 @@ function useToast(ms: number): [boolean, () => void] {
 
 function App() {
   const [pending, setPending] = useState<SelectionAnchor | null>(null);
-  const [openAnn, setOpenAnn] = useState<{ id: string; rect: DOMRect } | null>(null);
+  const [openAnn, setOpenAnn] = useState<{ id: string; rect: DOMRect; editing: boolean } | null>(
+    null,
+  );
   const [hovered, setHovered] = useState<Element | null>(null);
   const [focus, setFocus] = useState<{ id: string; tick: number } | null>(null);
   const [copied, showCopied] = useToast(2000);
@@ -337,6 +339,9 @@ function App() {
   };
 
   useAction("annotate-block", () => annotateBlock(hovered));
+  useAction("edit-annotation", () => {
+    if (openAnn) setOpenAnn({ ...openAnn, editing: true });
+  });
   useAction("delete-annotation", () => {
     if (openAnn) remove(openAnn.id);
   });
@@ -354,7 +359,7 @@ function App() {
       const hit = rangesRef.current.find((r) => r.range.isPointInRange(caret.node, caret.offset));
       if (hit) {
         focusAnnotation(hit.id);
-        setOpenAnn({ id: hit.id, rect: hit.range.getBoundingClientRect() });
+        setOpenAnn({ id: hit.id, rect: hit.range.getBoundingClientRect(), editing: false });
         return;
       }
     }
@@ -416,7 +421,17 @@ function App() {
       />
       {copied && <div class="toast">Copied agent prompt</div>}
       {openAnn && openAnnotation && (
-        <AnnotationPopover popoverRef={annPopoverRef} rect={openAnn.rect} annotation={openAnnotation} />
+        <AnnotationPopover
+          popoverRef={annPopoverRef}
+          rect={openAnn.rect}
+          annotation={openAnnotation}
+          editing={openAnn.editing}
+          onEdit={(note) => {
+            edit(openAnnotation.id, note);
+            setOpenAnn(null);
+          }}
+          onCancelEdit={() => setOpenAnn({ ...openAnn, editing: false })}
+        />
       )}
       {pending && (
         <Popover
@@ -620,15 +635,31 @@ function AnnotationPopover(props: {
   popoverRef: { current: HTMLDivElement | null };
   rect: DOMRect;
   annotation: Annotation;
+  editing: boolean;
+  onEdit: (note: string) => void;
+  onCancelEdit: () => void;
 }) {
   const pos = usePopoverPosition(props.popoverRef, props.rect);
 
   return (
     <div class="popover" ref={props.popoverRef} style={{ left: `${pos.left}px`, top: `${pos.top}px` }}>
-      {props.annotation.note && <p class="popover-note">{props.annotation.note}</p>}
-      <div class="row">
-        <ActionButton id="delete-annotation" />
-      </div>
+      {props.editing ? (
+        <NoteForm
+          rows={2}
+          initial={props.annotation.note}
+          submitLabel="Save"
+          onSubmit={props.onEdit}
+          onCancel={props.onCancelEdit}
+        />
+      ) : (
+        <>
+          {props.annotation.note && <p class="popover-note">{props.annotation.note}</p>}
+          <div class="row">
+            <ActionButton id="edit-annotation" />
+            <ActionButton id="delete-annotation" />
+          </div>
+        </>
+      )}
     </div>
   );
 }
