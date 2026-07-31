@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isMarkdownPath, pathToUrl, startServer } from "../src/server.ts";
@@ -8,9 +8,14 @@ let dir: string;
 let file: string;
 let server: Awaited<ReturnType<typeof startServer>>;
 let base: string;
+let stateHome: string;
+let prevStateHome: string | undefined;
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "mdnote-server-"));
+  stateHome = mkdtempSync(join(tmpdir(), "mdnote-state-"));
+  prevStateHome = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = stateHome;
   file = join(dir, "doc with space.md");
   writeFileSync(file, "# Hello\n\nworld\n");
   server = await startServer({ file, host: "127.0.0.1", port: 0 });
@@ -19,7 +24,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server.stop();
+  if (prevStateHome === undefined) delete process.env.XDG_STATE_HOME;
+  else process.env.XDG_STATE_HOME = prevStateHome;
   rmSync(dir, { recursive: true, force: true });
+  rmSync(stateHome, { recursive: true, force: true });
 });
 
 describe("path-as-URL addressing", () => {
@@ -190,6 +198,36 @@ describe("watchers and SSE scoping", () => {
 
   test("files in one directory share a single directory watcher", () => {
     expect(server.watchedDirs()).toEqual([dir]);
+  });
+});
+
+describe("registry persistence", () => {
+  test("a persisted path is restored on cold start without creating a watcher", async () => {
+    const docs = mkdtempSync(join(tmpdir(), "mdnote-persisted-"));
+    const restored = join(docs, "restored.md");
+    const started = join(docs, "started.md");
+    writeFileSync(restored, "# Restored\n");
+    writeFileSync(started, "# Started\n");
+    const state = mkdtempSync(join(tmpdir(), "mdnote-state-"));
+    mkdirSync(join(state, "mdnote"));
+    writeFileSync(
+      join(state, "mdnote", "registry.json"),
+      JSON.stringify({ [restored]: new Date().toISOString() }),
+    );
+    process.env.XDG_STATE_HOME = state;
+    let s: Awaited<ReturnType<typeof startServer>> | null = null;
+    try {
+      s = await startServer({ file: started, host: "127.0.0.1", port: 0 });
+      expect(s.watchedDirs()).toEqual([]);
+      const res = await fetch(`http://127.0.0.1:${s.port}/api/files`);
+      const { files } = (await res.json()) as { files: { path: string }[] };
+      expect(files.map((f) => f.path).sort()).toEqual([restored, started].sort());
+    } finally {
+      process.env.XDG_STATE_HOME = stateHome;
+      await s?.stop();
+      rmSync(docs, { recursive: true, force: true });
+      rmSync(state, { recursive: true, force: true });
+    }
   });
 });
 

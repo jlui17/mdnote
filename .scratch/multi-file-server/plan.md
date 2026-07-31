@@ -118,9 +118,9 @@ until a tab connects.
 
 **Blocked by:** 02 (lands naturally after 04).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `mdnote stop`, restart via `mdnote <file>` on one file: previously open files reappear in `/` and `mdnote list`
-- [ ] Entries whose files no longer exist are dropped on load; entries untouched past the age-out window disappear
-- [ ] Cold start with a persisted registry creates no watchers until a tab connects
-- [ ] `bun test` and `bunx tsc --noEmit` clean
+- [x] `mdnote stop`, restart via `mdnote <file>` on one file: previously open files reappear in `/` and `mdnote list`
+- [x] Entries whose files no longer exist are dropped on load; entries untouched past the age-out window disappear
+- [x] Cold start with a persisted registry creates no watchers until a tab connects
+- [x] `bun test` and `bunx tsc --noEmit` clean

@@ -5,12 +5,13 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 ## Map (runtime order)
 
 - `src/cli.ts` — entry (`mdnote <file.md>` / `comments` / `clear` / `stop`; any non-subcommand argv is a review invocation), find-or-attach: it POSTs `/api/open` to the server named by the global lock, or spawns itself detached with the internal `--serve` flag, stdout/stderr pointed at the state-dir log (the serve process is the only one that runs `startServer`, writes the lock, and cleans it up). Review dynamic-imports `server.ts` so `comments`/`clear` keep working even when the server is broken.
-- `src/lock.ts` — the state dir (`~/.local/state/mdnote`, `$XDG_STATE_HOME` honored) and what lives in it: the global lock `server.json` (`{host, port, pid}` read/write plus pid-liveness) and `logPath()` for `server.log`.
+- `src/lock.ts` — the state dir (`~/.local/state/mdnote`, `$XDG_STATE_HOME` honored) and what lives in it: the global lock `server.json` (`{host, port, pid}` read/write plus pid-liveness), `logPath()` for `server.log`, and `registryPath()` for `registry.json`.
+- `src/registry.ts` — the persisted working set (`registry.json`: absolute path → last-touched ISO stamp), loaded on cold start and rewritten on every touch.
 - `src/config.ts` — reads `~/.config/mdnote/settings.json` (`$XDG_CONFIG_HOME` honored), validates warn-and-drop per key, merges over defaults into a `ResolvedConfig`.
 - `src/actions.ts` — pure action catalog (`ActionId`s, labels, default keybindings) and keybinding spec parsing; shared by `config.ts` and the frontend.
 - `src/render.ts` — markdown-it with a rule stamping `data-source-line="start-end"` on block elements.
 - `src/anchor.ts` — `locate()` matches rendered-text selections against Markdown source; `reanchor()` re-resolves annotations after edits. The load-bearing module: staleness is `locate()` returning null.
-- `src/server.ts` — Bun.serve API + SSE + file watchers over a registry of open files (path → SSE clients); bundles the frontend at startup, runs the idle clock.
+- `src/server.ts` — Bun.serve API + SSE + file watchers over a registry of open files (path → SSE clients, restored from `registry.json` at startup); bundles the frontend at startup, runs the idle clock.
 - `src/store.ts` — sidecar JSON read/write (`<file>.mdnote.json`), atomic via temp-file + rename.
 - `src/types.ts` — shared types. Import from here; never redeclare.
 - `web/anchor-dom.ts` — framework-free DOM math (selection → `data-source-line` → line ranges, text-node search for highlight ranges). No Preact imports, by design.
@@ -27,6 +28,7 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 - **Every color literal lives in the `:root` token block of `style.css`.** Tokens carry both palettes via `light-dark()`; theme is set via `data-theme` on `<html>` (from settings.json, applied pre-paint by an inline script in `index.html`; the toggle changes it session-only), which flips `color-scheme`. `tests/style.test.ts` pins the no-literals rule for the CSS and the frontend TS — anything new that colors pixels (e.g. syntax highlighting) must go through tokens.
 - **The server owns settings truth.** `loadConfig()` merges settings.json over defaults and the server injects the resolved result into `index.html` as `window.__MDNOTE_CONFIG__` per request (page reload applies edits). The frontend never merges or persists settings — localStorage is gone; the theme toggle is session-only.
 - **What may be served is one predicate.** `isMarkdownPath()` plus an existence check gates both `POST /api/open` and document-GET auto-registration; both 404 identically. `/api/*?file=` serves only registered files — auto-registration happens on document GETs alone.
+- **The registry persists paths, not watchers.** Restored entries only populate the file map; a watcher still appears when that file's first SSE client connects. `loadRegistry()` drops entries whose file no longer exists or that went untouched past the 14-day age-out; the touch points are `register()` (`/api/open`, auto-register) and a document GET of an already-registered path.
 - **Stale annotations are never silently dropped.** `reanchor()` flips them to `status: "stale"` and keeps the old `lineRange`; only a human (or explicit `clear`) removes them.
 
 ## Hiccups
@@ -42,4 +44,4 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 
 ## Verifying changes
 
-`bun test` (75 tests: render stamps, anchor matching, sidecar, style tokens, server registry/SSE scoping, idle shutdown, lock liveness) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a browser poke — use the `browser-test` skill (drives the real UI headlessly with agent-browser: drag-select, annotate, edit the file, assert sidecar/highlights).
+`bun test` (82 tests: render stamps, anchor matching, sidecar, style tokens, server registry/SSE scoping, idle shutdown, lock liveness, registry persistence) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a browser poke — use the `browser-test` skill (drives the real UI headlessly with agent-browser: drag-select, annotate, edit the file, assert sidecar/highlights).

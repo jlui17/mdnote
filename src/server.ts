@@ -3,6 +3,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { render } from "./render.ts";
 import { locate, reanchor } from "./anchor.ts";
 import { loadConfig } from "./config.ts";
+import { loadRegistry, saveRegistry } from "./registry.ts";
 import { readSidecar, sidecarPath, writeSidecar } from "./store.ts";
 import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation } from "./types.ts";
 
@@ -70,6 +71,7 @@ function servable(file: string): boolean {
 interface FileState {
   clients: Set<ReadableStreamDefaultController<Uint8Array>>;
   timer: ReturnType<typeof setTimeout> | null;
+  touchedAt: number;
 }
 
 interface DirWatch {
@@ -103,13 +105,22 @@ export async function startServer(opts: {
   const dirWatchers = new Map<string, DirWatch>();
   const encoder = new TextEncoder();
 
+  for (const [file, touchedAt] of loadRegistry())
+    files.set(file, { clients: new Set(), timer: null, touchedAt });
+
   function register(file: string): FileState {
     let state = files.get(file);
     if (!state) {
-      state = { clients: new Set(), timer: null };
+      state = { clients: new Set(), timer: null, touchedAt: 0 };
       files.set(file, state);
     }
+    touch(state);
     return state;
+  }
+
+  function touch(state: FileState) {
+    state.touchedAt = Date.now();
+    saveRegistry(new Map([...files].map(([f, s]) => [f, s.touchedAt])));
   }
 
   function broadcast(state: FileState) {
@@ -249,7 +260,9 @@ export async function startServer(opts: {
           headers: { "content-type": "text/html; charset=utf-8" },
         });
 
-      if (!files.has(docPath)) {
+      const known = files.get(docPath);
+      if (known) touch(known);
+      else {
         if (!servable(docPath)) return new Response("not found", { status: 404 });
         register(docPath);
       }

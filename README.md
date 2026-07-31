@@ -90,7 +90,7 @@ The bind flags take effect on a cold start, so `mdnote stop` first if a loopback
 
 - **`mdnote <file.md> [--host H] [--port P]`** — opens the file in the browser (loopback only) and exits, starting the background server first if none is running. Defaults to `127.0.0.1:4820`; the document lives at the file's absolute path on that port. `--host`/`--port` apply to a cold start; passing either with values that disagree with the running server is an error telling you to `mdnote stop` first.
 - **`mdnote stop`** — stops the background server. It also stops itself after 5 minutes with no open tab, and the next `mdnote <file.md>` cold-starts it again.
-- **`mdnote list`** — lists every file open on the running server with its URL; says so and exits 0 if no server is running.
+- **`mdnote list`** — lists every file open on the running server with its URL; says so and exits 0 if no server is running. The list survives restarts and reboots: paths persist in the state dir, and a cold-started server re-lists the ones whose files still exist and that you've touched in the last two weeks.
 - **`mdnote comments <file.md> [--json]`** — lists annotations. `--json` prints `{file, annotations}`; without it, a human-readable list.
 - **`mdnote clear <file.md> [--ids ID[,ID...]]`** — clears the listed annotations by `--ids` (comma-separated), or all annotations if omitted.
 

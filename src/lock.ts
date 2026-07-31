@@ -16,6 +16,10 @@ export function logPath(): string {
   return join(stateDir(), "server.log");
 }
 
+export function registryPath(): string {
+  return join(stateDir(), "registry.json");
+}
+
 /** The recorded server, or null when the lock is absent, unreadable, or names a dead pid. */
 export function readLiveLock(path = lockPath()): ServerLock | null {
   let lock: ServerLock;
