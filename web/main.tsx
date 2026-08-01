@@ -672,7 +672,11 @@ function App() {
         />
       )}
       {blockBoxes.map(({ id, status, box }) => (
-        <div key={id} class={`block-box ${status}`} style={boxStyle(box)} />
+        <div
+          key={focus?.id === id ? `${id}:${focus.tick}` : id}
+          class={`block-box ${status}${focus?.id === id ? " flash" : ""}`}
+          style={boxStyle(box)}
+        />
       ))}
       {blockRect && <div class="block-pending" style={boxStyle(blockRect)} />}
       <div

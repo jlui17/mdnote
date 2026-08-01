@@ -261,6 +261,16 @@ body {
   background: var(--hl-stale);
 }
 
+.block-box.flash {
+  animation: block-flash 1.2s ease-out;
+}
+
+@keyframes block-flash {
+  from {
+    background-color: var(--hl-focus);
+  }
+}
+
 /* --- file index --------------------------------------------------------- */
 
 .index {
