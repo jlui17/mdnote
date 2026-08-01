@@ -15,7 +15,7 @@ export const ACTIONS: Record<ActionId, { label: string; keybinding?: string }> =
   "annotate-block": { label: "Annotate hovered block", keybinding: "c" },
   "annotate-document": { label: "Add general note", keybinding: "shift+c" },
   "edit-annotation": { label: "Edit note", keybinding: "e" },
-  "delete-annotation": { label: "Delete annotation", keybinding: "d" },
+  "delete-annotation": { label: "Delete annotation", keybinding: "shift+d" },
   // "?" arrives as a shifted key event, so the spec names both.
   "show-help": { label: "Show interaction guide", keybinding: "shift+?" },
 };
