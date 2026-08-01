@@ -37,7 +37,7 @@ const GROUPS: { title: string; hint?: string; rows: Row[] }[] = [
       },
       { what: "Jump to an annotation in the document", mouse: "Click its sidebar entry" },
       { action: "edit-annotation", mouse: "✎ on an entry, or double-click its note" },
-      { action: "delete-annotation", mouse: "× on an entry" },
+      { action: "delete-annotation", mouse: "× on an entry, then ↩ to confirm (Esc cancels)" },
     ],
   },
   {

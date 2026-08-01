@@ -576,6 +576,11 @@ function App() {
     void deleteAnnotation(id).then(refreshAnnotations);
   };
 
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const confirmDeleteAnn = confirmDeleteId
+    ? annotations.find((a) => a.id === confirmDeleteId)
+    : undefined;
+
   const edit = (id: string, note: string) =>
     void patchAnnotation(id, { note }).then(refreshAnnotations);
 
@@ -604,10 +609,10 @@ function App() {
   });
   useAction("delete-annotation", () => {
     if (sidebarTarget) {
-      remove(sidebarTarget);
+      setConfirmDeleteId(sidebarTarget);
       return;
     }
-    if (openAnn) remove(openAnn.id);
+    if (openAnn) setConfirmDeleteId(openAnn.id);
   });
 
   const onDocClick = (e: MouseEvent) => {
@@ -691,7 +696,7 @@ function App() {
         annotations={annotations}
         focus={focus}
         onFocus={scrollTo}
-        onDelete={remove}
+        onDelete={setConfirmDeleteId}
         onEdit={edit}
         onGlobal={(note) => submit({ lineRange: null, anchorText: null, note })}
         onHoverEntry={setHoveredEntryId}
@@ -700,6 +705,16 @@ function App() {
       />
       {toast && <div class="toast">{toast}</div>}
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
+      {confirmDeleteAnn && (
+        <ConfirmDeleteDialog
+          note={confirmDeleteAnn.note}
+          onConfirm={() => {
+            setConfirmDeleteId(null);
+            remove(confirmDeleteAnn.id);
+          }}
+          onCancel={() => setConfirmDeleteId(null)}
+        />
+      )}
       {openAnn && openAnnotation && (
         <AnnotationPopover
           popoverRef={annPopoverRef}
@@ -957,6 +972,44 @@ function usePopoverPosition(ref: { current: HTMLDivElement | null }, rect: DOMRe
   }, [rect]);
 
   return pos;
+}
+
+function ConfirmDeleteDialog(props: { note: string; onConfirm: () => void; onCancel: () => void }) {
+  // Capture phase so Enter/Escape settle the dialog before the popover's or
+  // help dialog's own key handlers see them.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Enter") props.onConfirm();
+      else props.onCancel();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [props.onConfirm, props.onCancel]);
+
+  return (
+    <div
+      class="help-scrim"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) props.onCancel();
+      }}
+    >
+      <div class="confirm-panel" role="alertdialog" aria-modal="true" aria-label="Delete annotation">
+        <p>Delete this annotation?</p>
+        {props.note && <p class="confirm-note">{props.note}</p>}
+        <div class="row">
+          <button type="button" onClick={props.onConfirm}>
+            Delete <kbd>↩</kbd>
+          </button>
+          <button type="button" onClick={props.onCancel}>
+            Cancel <kbd>Esc</kbd>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function AnnotationPopover(props: {

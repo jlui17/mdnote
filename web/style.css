@@ -621,6 +621,23 @@ button kbd {
   background: var(--scrim);
 }
 
+.confirm-panel {
+  width: min(360px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px var(--shadow);
+  padding: 1rem 1.25rem 1.25rem;
+  font-size: 0.9rem;
+}
+
+.confirm-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
 .help-panel {
   width: min(620px, 100%);
   max-height: 100%;
