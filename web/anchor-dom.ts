@@ -10,8 +10,9 @@ export interface SelectionAnchor {
   rect: DOMRect;
   /** Survives the native selection collapsing when the popover takes the click. */
   range: Range;
-  /** Set for whole-block anchors: the stamped element, so pending paints the block box, not the text. */
-  block?: Element;
+  /** Set for whole-block anchors: the stamped elements the anchor covers (a consecutive
+   *  sibling run, usually one), so pending paints the block box, not the text. */
+  blocks?: Element[];
 }
 
 export function parseStamp(el: Element): [number, number] | null {
@@ -121,18 +122,14 @@ export function findRange(
   return range;
 }
 
-/** The stamped block holding `anchorText`, for painting a block annotation's box. */
-export function findBlock(
+/** The stamped blocks holding `anchorText`, for painting a block annotation's box. */
+export function findBlocks(
   doc: Element,
   anchorText: string,
   lineRange: [number, number] | null,
-): Element | null {
+): Element[] | null {
   const range = findRange(doc, anchorText, lineRange);
-  if (!range) return null;
-  const node = range.commonAncestorContainer;
-  const el = node instanceof Element ? node : node.parentElement;
-  const block = el?.closest("[data-source-line]") ?? null;
-  return block && doc.contains(block) ? block : null;
+  return range && blockRun(doc, range);
 }
 
 /** True when `a` and `b` are the same text after collapsing whitespace runs — the same
@@ -141,28 +138,53 @@ export function sameNormalizedText(a: string, b: string): boolean {
   return normalize(a).norm === normalize(b).norm;
 }
 
-/** The stamped ancestor, if any, whose full text exactly equals the selection's, walking the
- *  selection's stamped ancestor chain innermost-first — so a full-list sweep (whose common
- *  ancestor is the list) promotes to the list, not a first item that only partly matches. */
-export function wholeBlockMatch(doc: Element, range: Range, anchorText: string): Element | null {
-  const start = range.commonAncestorContainer;
-  const base = start instanceof Element ? start : start.parentElement;
-  let candidate = base?.closest("[data-source-line]") ?? null;
-  while (candidate && doc.contains(candidate)) {
-    if (sameNormalizedText(candidate.textContent ?? "", anchorText)) return candidate;
-    candidate = candidate.parentElement?.closest("[data-source-line]") ?? null;
+/** The consecutive run of stamped blocks a range spans: the endpoints lifted to children
+ *  of the range's common ancestor and the siblings between them — so two list items form
+ *  a run of items, not their list. When no such run exists (endpoints inside one block,
+ *  or an unstamped sibling in between), the enclosing stamped block alone is the run;
+ *  null when there is none. */
+export function blockRun(doc: Element, range: Range): Element[] | null {
+  const node = range.commonAncestorContainer;
+  const anc = node instanceof Element ? node : node.parentElement;
+  if (!anc || !doc.contains(anc)) return null;
+  const lift = (n: Node): Element | null => {
+    let el: Element | null = n instanceof Element ? n : n.parentElement;
+    while (el && el !== anc && el.parentElement !== anc) el = el.parentElement;
+    return el === anc ? null : el;
+  };
+  const first = lift(range.startContainer);
+  const last = lift(range.endContainer);
+  if (first && last) {
+    const run: Element[] = [];
+    for (let el: Element | null = first; el; el = el.nextElementSibling) {
+      if (!parseStamp(el)) break;
+      run.push(el);
+      if (el === last) return run;
+    }
   }
-  return null;
+  const single = anc.closest("[data-source-line]");
+  return single && doc.contains(single) && parseStamp(single) ? [single] : null;
 }
 
-/** Anchor covering a stamped block's full contents. Null for stampless or text-free blocks. */
-export function blockAnchor(block: Element): SelectionAnchor | null {
-  const lineRange = parseStamp(block);
-  const anchorText = block.textContent ?? "";
-  if (!lineRange || !anchorText.trim()) return null;
+/** Anchor covering a run of stamped blocks' full contents. Null for stampless or text-free runs. */
+export function blockAnchor(blocks: Element[]): SelectionAnchor | null {
+  const first = blocks[0];
+  const last = blocks[blocks.length - 1];
+  if (!first || !last) return null;
+  const start = parseStamp(first);
+  const end = parseStamp(last);
+  const anchorText = blocks.map((el) => el.textContent ?? "").join("\n\n");
+  if (!start || !end || !anchorText.trim()) return null;
   const range = document.createRange();
-  range.selectNodeContents(block);
-  return { lineRange, anchorText, rect: block.getBoundingClientRect(), range, block };
+  range.setStartBefore(first);
+  range.setEndAfter(last);
+  return {
+    lineRange: [start[0], end[1]],
+    anchorText,
+    rect: range.getBoundingClientRect(),
+    range,
+    blocks,
+  };
 }
 
 function nearestStamp(doc: Element, node: Node | null): [number, number] | null {
@@ -182,9 +204,15 @@ export function selectionAnchor(doc: Element): SelectionAnchor | null {
   if (!doc.contains(range.startContainer) || !doc.contains(range.endContainer)) return null;
   const anchorText = sel.toString();
   if (!anchorText.trim()) return null;
-  const block = wholeBlockMatch(doc, range, anchorText);
-  const promoted = block && blockAnchor(block);
-  if (promoted) return promoted;
+  // A drag or triple-click often spills an endpoint just inside a neighbor block (offset 0
+  // of the next, or the very end of the previous), adding it to the run with no selected
+  // text; the trimmed variants let such a selection still promote.
+  const run = blockRun(doc, range) ?? [];
+  const runs = [run, run.slice(0, -1), run.slice(1), run.slice(1, -1)];
+  for (const r of runs) {
+    const promoted = r.length ? blockAnchor(r) : null;
+    if (promoted && sameNormalizedText(promoted.anchorText, anchorText)) return promoted;
+  }
   const a = nearestStamp(doc, range.startContainer);
   const b = nearestStamp(doc, range.endContainer);
   if (!a && !b) return null;

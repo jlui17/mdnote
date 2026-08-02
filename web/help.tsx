@@ -17,8 +17,8 @@ const GROUPS: { title: string; hint?: string; rows: Row[] }[] = [
     rows: [
       { what: "Note a span of text", mouse: "Drag across the text" },
       {
-        what: "Note a whole block",
-        mouse: "Drag across all of it — the selection promotes to a block annotation",
+        what: "Note whole blocks",
+        mouse: "Drag across all of one or more — the selection promotes to a block annotation",
       },
       { action: "annotate-block", mouse: "Click a block (the accent bar marks the target)" },
       { action: "annotate-document", mouse: "+ General note, in the sidebar" },

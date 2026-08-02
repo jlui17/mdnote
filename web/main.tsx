@@ -22,7 +22,7 @@ import {
 import {
   blockAnchor,
   caretAt,
-  findBlock,
+  findBlocks,
   findRange,
   selectionAnchor,
   type SelectionAnchor,
@@ -175,14 +175,24 @@ interface Box {
   height: number;
 }
 
-/** `el`'s block box in page coordinates, grown by the halo every block box wears. */
-function paddedBox(el: Element): Box {
-  const r = blockBox(el);
+/** The union of `els`' block boxes in page coordinates, grown by the halo every block box wears. */
+function paddedBox(els: Element[]): Box {
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const el of els) {
+    const r = blockBox(el);
+    left = Math.min(left, r.left);
+    top = Math.min(top, r.top);
+    right = Math.max(right, r.left + r.width);
+    bottom = Math.max(bottom, r.top + r.height);
+  }
   return {
-    left: r.left + window.scrollX - 8,
-    top: r.top + window.scrollY - 4,
-    width: r.width + 16,
-    height: r.height + 8,
+    left: left + window.scrollX - 8,
+    top: top + window.scrollY - 4,
+    width: right - left + 16,
+    height: bottom - top + 8,
   };
 }
 
@@ -282,7 +292,7 @@ function useHighlights(
   }, [annotations, docHtml]);
 
   useEffect(() => {
-    setHighlight("mdnote-pending", pending && !pending.block ? [pending.range] : []);
+    setHighlight("mdnote-pending", pending && !pending.blocks ? [pending.range] : []);
     return () => setHighlight("mdnote-pending", []);
   }, [pending]);
 
@@ -309,19 +319,19 @@ function useBlockBoxes(
   annotations: Annotation[],
   docHtml: string | undefined,
 ) {
-  const blocksRef = useRef<{ id: string; el: Element; status: AnnotationStatus }[]>([]);
+  const blocksRef = useRef<{ id: string; els: Element[]; status: AnnotationStatus }[]>([]);
   const [boxes, setBoxes] = useState<{ id: string; status: AnnotationStatus; box: Box }[]>([]);
 
   const measure = () =>
-    setBoxes(blocksRef.current.map((b) => ({ id: b.id, status: b.status, box: paddedBox(b.el) })));
+    setBoxes(blocksRef.current.map((b) => ({ id: b.id, status: b.status, box: paddedBox(b.els) })));
 
   useLayoutEffect(() => {
     const container = docRef.current;
     blocksRef.current = [];
     for (const a of container ? annotations : []) {
       if (!a.block || !a.anchorText) continue;
-      const el = findBlock(container!, a.anchorText, a.lineRange);
-      if (el) blocksRef.current.push({ id: a.id, el, status: a.status });
+      const els = findBlocks(container!, a.anchorText, a.lineRange);
+      if (els) blocksRef.current.push({ id: a.id, els, status: a.status });
     }
     measure();
   }, [annotations, docHtml]);
@@ -342,7 +352,7 @@ function useDocEvents(args: {
   setOpenAnn: (a: null) => void;
   setHovered: (el: Element | null) => void;
   pinnedRef: { current: boolean };
-  openIfBlockAnnotatedRef: { current: (block: Element) => boolean };
+  openIfBlockAnnotatedRef: { current: (blocks: Element[]) => boolean };
 }) {
   const dismissRef = useRef(false);
   const draggedRef = useRef(false);
@@ -359,7 +369,7 @@ function useDocEvents(args: {
       draggedRef.current = anchor !== null;
       // Ticket 02's whole-block drag promotion can land on a block that already
       // has a note; open it pinned instead of stacking a duplicate.
-      if (anchor?.block && args.openIfBlockAnnotatedRef.current(anchor.block)) {
+      if (anchor?.blocks && args.openIfBlockAnnotatedRef.current(anchor.blocks)) {
         window.getSelection()?.removeAllRanges();
         args.setPending(null);
         return;
@@ -507,16 +517,18 @@ function App() {
 
   const focusAnnotation = (id: string) => setFocus((f) => ({ id, tick: (f?.tick ?? 0) + 1 }));
 
-  /** True (and pops the pinned popover) when `block` already carries a `block: true`
+  /** True (and pops the pinned popover) when `blocks` already carries a `block: true`
    *  annotation — the duplicate-stacking guard shared by click, `c`, and drag promotion. */
-  const openIfBlockAnnotated = (block: Element): boolean => {
-    const existingId = blockAnnotationsRef.current.find((b) => b.el === block)?.id;
+  const openIfBlockAnnotated = (blocks: Element[]): boolean => {
+    const existingId = blockAnnotationsRef.current.find(
+      (b) => b.els.length === blocks.length && b.els.every((el, i) => el === blocks[i]),
+    )?.id;
     if (!existingId) return false;
     focusAnnotation(existingId);
     const box = blockBoxes.find((b) => b.id === existingId)?.box;
     setOpenAnn({
       id: existingId,
-      rect: box ? viewportRect(box) : block.getBoundingClientRect(),
+      rect: box ? viewportRect(box) : blocks[0]!.getBoundingClientRect(),
       editing: false,
       pinned: true,
     });
@@ -586,8 +598,8 @@ function App() {
 
   const annotateBlock = (block: Element | null) => {
     if (!block || !docRef.current?.contains(block)) return;
-    if (openIfBlockAnnotated(block)) return;
-    const anchor = blockAnchor(block);
+    if (openIfBlockAnnotated([block])) return;
+    const anchor = blockAnchor([block]);
     if (anchor) setPending(anchor);
   };
 
@@ -660,7 +672,7 @@ function App() {
     if (delta) window.scrollBy({ top: delta, behavior: "smooth" });
   };
 
-  const blockRect = pending?.block ? paddedBox(pending.block) : null;
+  const blockRect = pending?.blocks ? paddedBox(pending.blocks) : null;
   const hoverRect = hovered?.isConnected ? blockBox(hovered) : null;
   const openAnnotation = openAnn ? annotations.find((a) => a.id === openAnn.id) : undefined;
 
@@ -737,7 +749,7 @@ function App() {
               lineRange: pending.lineRange,
               anchorText: pending.anchorText,
               note,
-              ...(pending.block ? { block: true as const } : {}),
+              ...(pending.blocks ? { block: true as const } : {}),
             })
           }
           onCancel={() => setPending(null)}
