@@ -15,6 +15,35 @@ export interface SelectionAnchor {
   blocks?: Element[];
 }
 
+export interface Box {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** Pulls apart boxes whose halos collide, shrinking each facing edge just enough to
+ *  leave `gap` between them, so two annotations on adjacent blocks read as two boxes.
+ *  Only overlaps up to `maxOverlap` (the sum of two halos) separate — anything deeper
+ *  means one box genuinely contains the other's blocks and both stay as measured.
+ *  Mutates the boxes in place. */
+export function separateBoxes(boxes: Box[], maxOverlap: number, gap: number): void {
+  const sorted = [...boxes].sort((a, b) => a.top - b.top);
+  for (let i = 0; i < sorted.length; i++) {
+    for (let j = i + 1; j < sorted.length; j++) {
+      const a = sorted[i]!;
+      const b = sorted[j]!;
+      if (a.left + a.width <= b.left || b.left + b.width <= a.left) continue;
+      const overlap = a.top + a.height - b.top;
+      if (overlap <= -gap || overlap > maxOverlap) continue;
+      const shrink = (overlap + gap) / 2;
+      a.height -= shrink;
+      b.top += shrink;
+      b.height -= shrink;
+    }
+  }
+}
+
 export function parseStamp(el: Element): [number, number] | null {
   const raw = el.getAttribute("data-source-line");
   if (!raw) return null;

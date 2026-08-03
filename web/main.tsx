@@ -25,6 +25,8 @@ import {
   findBlocks,
   findRange,
   selectionAnchor,
+  separateBoxes,
+  type Box,
   type SelectionAnchor,
 } from "./anchor-dom.ts";
 import { HelpDialog } from "./help.tsx";
@@ -168,12 +170,8 @@ function blockBox(el: Element): { left: number; top: number; width: number; heig
   return { left, top: r.top, width: r.right - left, height: r.height };
 }
 
-interface Box {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
+const HALO_X = 8;
+const HALO_Y = 4;
 
 /** The union of `els`' block boxes in page coordinates, grown by the halo every block box wears. */
 function paddedBox(els: Element[]): Box {
@@ -189,10 +187,10 @@ function paddedBox(els: Element[]): Box {
     bottom = Math.max(bottom, r.top + r.height);
   }
   return {
-    left: left + window.scrollX - 8,
-    top: top + window.scrollY - 4,
-    width: right - left + 16,
-    height: bottom - top + 8,
+    left: left + window.scrollX - HALO_X,
+    top: top + window.scrollY - HALO_Y,
+    width: right - left + 2 * HALO_X,
+    height: bottom - top + 2 * HALO_Y,
   };
 }
 
@@ -322,8 +320,15 @@ function useBlockBoxes(
   const blocksRef = useRef<{ id: string; els: Element[]; status: AnnotationStatus }[]>([]);
   const [boxes, setBoxes] = useState<{ id: string; status: AnnotationStatus; box: Box }[]>([]);
 
-  const measure = () =>
-    setBoxes(blocksRef.current.map((b) => ({ id: b.id, status: b.status, box: paddedBox(b.els) })));
+  const measure = () => {
+    const next = blocksRef.current.map((b) => ({ id: b.id, status: b.status, box: paddedBox(b.els) }));
+    separateBoxes(
+      next.map((n) => n.box),
+      2 * HALO_Y,
+      4,
+    );
+    setBoxes(next);
+  };
 
   useLayoutEffect(() => {
     const container = docRef.current;
