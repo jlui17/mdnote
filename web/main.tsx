@@ -459,10 +459,18 @@ function useHoverPreview(args: {
       at = { x: e.clientX, y: e.clientY, target: e.target };
       if (!frame) frame = requestAnimationFrame(sample);
     };
+    // Scrolling moves the doc under a stationary cursor without any mouse event.
+    const onScroll = () => {
+      if (!at) return;
+      at = { ...at, target: document.elementFromPoint(at.x, at.y) };
+      if (!frame) frame = requestAnimationFrame(sample);
+    };
 
     document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("scroll", onScroll, true);
       if (frame) cancelAnimationFrame(frame);
       ctl.cancel();
     };
