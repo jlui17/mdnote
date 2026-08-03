@@ -750,6 +750,7 @@ function App() {
             edit(openAnnotation.id, note);
             setOpenAnn(null);
           }}
+          onStartEdit={() => setOpenAnn({ ...openAnn, editing: true, pinned: true })}
           onCancelEdit={() => setOpenAnn({ ...openAnn, editing: false })}
         />
       )}
@@ -1044,6 +1045,7 @@ function AnnotationPopover(props: {
   annotation: Annotation;
   editing: boolean;
   onEdit: (note: string) => void;
+  onStartEdit: () => void;
   onCancelEdit: () => void;
 }) {
   const pos = usePopoverPosition(props.popoverRef, props.rect);
@@ -1060,7 +1062,11 @@ function AnnotationPopover(props: {
         />
       ) : (
         <>
-          {props.annotation.note && <p class="popover-note">{props.annotation.note}</p>}
+          {props.annotation.note && (
+            <p class="popover-note" onDblClick={props.onStartEdit}>
+              {props.annotation.note}
+            </p>
+          )}
           <div class="row">
             <ActionButton id="edit-annotation" label="Edit" />
             <ActionButton id="delete-annotation" label="Delete" />
