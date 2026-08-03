@@ -1,4 +1,4 @@
-import { existsSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, statSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { render } from "./render.ts";
 import { locate, reanchor } from "./anchor.ts";
@@ -81,6 +81,16 @@ interface DirWatch {
   watcher: FSWatcher;
   /** Watched basename (document or sidecar) → the document it belongs to. */
   names: Map<string, string>;
+  /** Last-seen mtime per watched basename; 0 while the file doesn't exist. */
+  mtimes: Map<string, number>;
+}
+
+function mtimeOf(path: string): number {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
+  }
 }
 
 export async function startServer(opts: {
@@ -156,9 +166,16 @@ export async function startServer(opts: {
     }
     const sidecar = readSidecar(file);
     const next = reanchor(source, sidecar.annotations);
-    if (JSON.stringify(next) !== JSON.stringify(sidecar.annotations))
+    if (JSON.stringify(next) !== JSON.stringify(sidecar.annotations)) {
       writeSidecar(file, { version: 1, annotations: next });
+      markSeen(sidecarPath(file));
+    }
     broadcast(state);
+  }
+
+  /** Record a write of our own so the watcher doesn't re-broadcast it. */
+  function markSeen(path: string) {
+    dirWatchers.get(dirname(path))?.mtimes.set(basename(path), mtimeOf(path));
   }
 
   function ensureWatch(file: string) {
@@ -167,21 +184,32 @@ export async function startServer(opts: {
     if (entry?.names.has(basename(file))) return;
     if (!entry) {
       const names = new Map<string, string>();
+      const mtimes = new Map<string, number>();
       let watcher: FSWatcher;
       try {
-        watcher = watch(dir, (_event, name) => {
-          const target = name ? names.get(name) : undefined;
-          if (target) schedule(target);
+        // A rename event carries the source name (on macOS, the temp file agents
+        // and editors write through), so events can't be matched by basename;
+        // stat the watched files instead and schedule the ones that moved.
+        watcher = watch(dir, () => {
+          for (const [base, target] of names) {
+            const m = mtimeOf(join(dir, base));
+            if (m !== mtimes.get(base)) {
+              mtimes.set(base, m);
+              schedule(target);
+            }
+          }
         });
       } catch (e) {
         console.error(`warning: file watching disabled for ${dir}: ${e}`);
         return;
       }
-      entry = { watcher, names };
+      entry = { watcher, names, mtimes };
       dirWatchers.set(dir, entry);
     }
-    entry.names.set(basename(file), file);
-    entry.names.set(basename(sidecarPath(file)), file);
+    for (const name of [basename(file), basename(sidecarPath(file))]) {
+      entry.names.set(name, file);
+      entry.mtimes.set(name, mtimeOf(join(dir, name)));
+    }
   }
 
   const { onIdle } = opts;
@@ -297,8 +325,11 @@ export async function startServer(opts: {
     state: FileState,
   ): Promise<Response> {
     const readSource = () => Bun.file(file).text();
-    const persist = (annotations: Annotation[]) =>
+    const persist = (annotations: Annotation[]) => {
       writeSidecar(file, { version: 1, annotations });
+      markSeen(sidecarPath(file));
+      broadcast(state);
+    };
 
     if (req.method === "GET" && path === "/doc") {
       const source = await readSource();

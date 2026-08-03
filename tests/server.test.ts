@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isMarkdownPath, pathToUrl, startServer } from "../src/server.ts";
@@ -217,6 +217,58 @@ describe("watchers and SSE scoping", () => {
 
   test("files in one directory share a single directory watcher", () => {
     expect(server.watchedDirs()).toEqual([dir]);
+  });
+});
+
+describe("rename-style writes and mutation broadcast", () => {
+  /** Connect an SSE client for `file`, run `act`, and report whether an update arrived. */
+  async function updateAfter(act: () => void | Promise<void>): Promise<boolean> {
+    const res = await fetch(`${base}/api/events?file=${encodeURIComponent(file)}`);
+    const reader = res.body!.getReader();
+    await reader.read();
+    await Bun.sleep(30);
+    await act();
+    const decoder = new TextDecoder();
+    const deadline = Bun.sleep(600).then(() => null);
+    try {
+      for (;;) {
+        const chunk = await Promise.race([reader.read(), deadline]);
+        if (chunk === null || chunk.done) return false;
+        if (decoder.decode(chunk.value).includes("event: update")) return true;
+      }
+    } finally {
+      await reader.cancel();
+    }
+  }
+
+  test("a temp-file-plus-rename write to the doc triggers an update", async () => {
+    const heard = await updateAfter(() => {
+      const tmp = join(dir, "doc-write.tmp");
+      writeFileSync(tmp, "# Hello\n\nworld replaced by rename\n");
+      renameSync(tmp, file);
+    });
+    expect(heard).toBe(true);
+  });
+
+  test("a temp-file-plus-rename write to the sidecar triggers an update", async () => {
+    const heard = await updateAfter(() => {
+      const tmp = join(dir, "sidecar-write.tmp");
+      writeFileSync(tmp, JSON.stringify({ version: 1, annotations: [] }));
+      renameSync(tmp, `${file}.mdnote.json`);
+    });
+    expect(heard).toBe(true);
+  });
+
+  test("an annotation POST broadcasts to connected clients", async () => {
+    const heard = await updateAfter(async () => {
+      const res = await fetch(`${base}/api/annotations?file=${encodeURIComponent(file)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lineRange: [1, 1], anchorText: "Hello", note: "broadcast me" }),
+      });
+      expect(res.status).toBe(201);
+    });
+    expect(heard).toBe(true);
   });
 });
 
