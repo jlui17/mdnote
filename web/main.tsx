@@ -607,7 +607,9 @@ function App() {
     : undefined;
 
   const edit = (id: string, note: string) =>
-    void patchAnnotation(id, { note }).then(refreshAnnotations);
+    void patchAnnotation(id, { note })
+      .then(refreshAnnotations)
+      .then(() => focusAnnotation(id));
 
   const annotateBlock = (block: Element | null) => {
     if (!block || !docRef.current?.contains(block)) return;
