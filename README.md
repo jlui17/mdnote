@@ -4,6 +4,11 @@ Highlight-and-comment review for Markdown files. Select a span in a rendered doc
 
 Iterating on Markdown (plans, docs, prompts) with a coding agent usually means typing free-form directions like "in the third paragraph under Setup, change X". mdnote replaces that with direct annotation: you review the rendered document in a browser and mark exactly the spans you mean; the agent reads your notes with precise source locations and edits the file.
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-light.png">
+  <img src="docs/screenshot-dark.png" alt="mdnote reviewing a project plan: highlighted phrases with a pinned note popover, a block annotation boxing a code fence, and a sidebar listing every note with its source lines">
+</picture>
+
 ## How it works
 
 The server renders your Markdown so that every element carries its source line numbers, which lets a browser text selection map back to exact lines in the file. Each note you leave ("make this punchier", "remove this") persists to a sidecar JSON next to the file, so nothing lives only in the browser tab. The agent never touches the browser: it pulls annotations through the CLI, edits the file, and the page live-reloads with the new content. Annotations follow the text they anchor to as lines shift; one whose text no longer exists is marked stale rather than silently dropped.
