@@ -52,3 +52,13 @@ What the tool is and how to use it: README.md. This file is what must stay true 
 ## Verifying changes
 
 `bun test` (107 tests: render stamps, anchor matching, sidecar, style tokens, hover-preview timing, help-row resolution, server registry/SSE scoping and keepalive, idle shutdown, lock liveness, registry persistence) and `bunx tsc --noEmit` — both must be clean. Browser drag-selection has no automated coverage: any change to selection, popover, or highlight code needs a browser poke — use the `browser-test` skill (drives the real UI headlessly with agent-browser: drag-select, annotate, edit the file, assert sidecar/highlights).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`jlui17/mdnote`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
