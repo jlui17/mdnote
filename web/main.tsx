@@ -975,8 +975,9 @@ function Sidebar(props: {
   );
 }
 
+/** `rect` is viewport coords at open time; the result is document coords so the popover scrolls with its annotation. */
 function usePopoverPosition(ref: { current: HTMLDivElement | null }, rect: DOMRect) {
-  const [pos, setPos] = useState({ left: rect.left, top: rect.bottom + 8 });
+  const [pos, setPos] = useState({ left: rect.left + window.scrollX, top: rect.bottom + 8 + window.scrollY });
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -987,7 +988,7 @@ function usePopoverPosition(ref: { current: HTMLDivElement | null }, rect: DOMRe
       below + el.offsetHeight > window.innerHeight
         ? Math.max(8, rect.top - el.offsetHeight - 8)
         : below;
-    setPos({ left, top });
+    setPos({ left: left + window.scrollX, top: top + window.scrollY });
     el.querySelector("textarea")?.focus();
   }, [rect]);
 

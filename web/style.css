@@ -710,7 +710,7 @@ button kbd {
 /* --- popover ----------------------------------------------------------- */
 
 .popover {
-  position: fixed;
+  position: absolute;
   z-index: 10;
   width: 280px;
   background: var(--surface);
