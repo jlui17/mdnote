@@ -1,4 +1,4 @@
-import { render, type RefObject } from "preact";
+import { Fragment, render, type RefObject } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type {
   Annotation,
@@ -856,6 +856,10 @@ function Sidebar(props: {
   const helpKb = bindingFor("show-help");
   const name = props.path?.split("/").pop() ?? "";
   const count = props.annotations.length;
+  const entries = [...props.annotations].sort(
+    (a, b) => Number(a.status === "stale") - Number(b.status === "stale"),
+  );
+  const staleStart = entries.findIndex((a) => a.status === "stale");
 
   const globalForm = adding && (
     <div class="global-form">
@@ -912,18 +916,17 @@ function Sidebar(props: {
             )}
           </li>
         )}
-        {props.annotations.map((a) => (
+        {entries.map((a, i) => (
+          <Fragment key={a.id}>
+          {i === staleStart && <li class="stale-divider">stale</li>}
           <li
-            key={a.id}
             class={`entry ${a.status}${props.focus?.id === a.id ? " focused" : ""}`}
             data-annotation-id={a.id}
             onClick={() => props.onFocus(a.id)}
             onMouseEnter={() => props.onHoverEntry(a.id)}
             onMouseLeave={() => props.onHoverEntry(null)}
           >
-            <div class="entry-head">
-              {!a.anchorText && <span class="badge badge-global">global</span>}
-              {a.status === "stale" && <span class="badge badge-stale">stale</span>}
+            <div class="entry-actions">
               <button
                 type="button"
                 class="edit"
@@ -972,6 +975,7 @@ function Sidebar(props: {
               {formatTime(a.createdAt)}
             </time>
           </li>
+          </Fragment>
         ))}
         </ul>
       </div>
