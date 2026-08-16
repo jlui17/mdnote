@@ -1,81 +1,50 @@
 import { useEffect } from "preact/hooks";
-import { ACTIONS, bindingFor, formatKeybinding, isMac, SUBMIT_KEY, type ActionId } from "./actions.tsx";
+import { ACTIONS, bindingFor, formatKeybinding, isMac, type ActionId } from "./actions.tsx";
 
 /**
- * The interaction cheatsheet. Keyboard rows resolve through the action catalog, so a remap
- * shows the user's keys; mouse gestures have no catalog, so they are the static rows below.
- * Any change to how mdnote is driven belongs in GROUPS in the same round.
+ * The keybinding cheatsheet: only keybound actions, with a description where the behavior
+ * is non-obvious (targeting rules, what gets copied). Rows resolve through the action
+ * catalog, so a remap shows the user's keys. The intro line teaches the core mouse gesture;
+ * everything else (buttons, hover, click-to-pin) is discoverable in place. A new keybound
+ * action belongs in ROWS in the same round.
  */
 
-type Row =
-  | { action: ActionId; mouse?: string }
-  | { what: string; key?: string; mouse?: string };
+const INTRO = "Click a block or highlight some text to add a note.";
 
-const GROUPS: { title: string; hint?: string; rows: Row[] }[] = [
+const ROWS: { action: ActionId; desc?: string }[] = [
   {
-    title: "Annotate",
-    rows: [
-      { what: "Note a span of text", mouse: "Drag across the text" },
-      {
-        what: "Note whole blocks",
-        mouse: "Drag across all of one or more — the selection promotes to a block annotation",
-      },
-      { action: "annotate-block", mouse: "Click a block (the accent bar marks the target)" },
-      { action: "annotate-document", mouse: "+ General note, in the sidebar" },
-      { what: "Save the note you are typing", key: SUBMIT_KEY },
-      { what: "Cancel the note you are typing", key: "Esc" },
-    ],
+    action: "annotate-block",
+    desc: "Note the block under the pointer. Click it, or press the key while hovering.",
   },
+  { action: "annotate-document" },
   {
-    title: "Review",
-    hint: "Edit and Delete act on the sidebar entry under the pointer, else the open popover.",
-    rows: [
-      { what: "Preview an annotation's note", mouse: "Rest the pointer on it" },
-      {
-        what: "Pin a note open",
-        mouse: "Click the annotation — the sidebar jumps to its entry",
-      },
-      { what: "Jump to an annotation in the document", mouse: "Click its sidebar entry" },
-      { action: "edit-annotation", mouse: "✎ on an entry, or double-click its note (sidebar or popover)" },
-      { action: "delete-annotation", mouse: "× on an entry, then ↩ to confirm (Esc cancels)" },
-    ],
+    action: "edit-annotation",
+    desc: "Edits the hovered sidebar entry, else the open popover. Also double-click the note.",
   },
-  {
-    title: "Document",
-    rows: [
-      { action: "copy-prompt", mouse: "Copy review prompt, at the sidebar foot" },
-      { action: "copy-markdown", mouse: "⧉ in the sidebar header" },
-      { action: "toggle-theme", mouse: "◐ in the sidebar header" },
-      { action: "show-help", mouse: "? in the sidebar header" },
-    ],
-  },
+  { action: "delete-annotation", desc: "Same target as Edit; ↩ confirms." },
+  { action: "copy-prompt", desc: "Copy a prompt for an agent to address the comments." },
 ];
 
 export interface HelpEntry {
   what: string;
+  /** The non-obvious part only; null when the name says it all. */
+  desc: string | null;
   /** Formatted keys, or null when the action carries no binding. */
   key: string | null;
-  mouse: string | null;
 }
 
-export function helpGroups(
+export function helpRows(
   keybindings?: Record<ActionId, string | null>,
   mac = isMac,
-): { title: string; hint?: string; rows: HelpEntry[] }[] {
-  return GROUPS.map((g) => ({
-    ...g,
-    rows: g.rows.map((row) => {
-      if (!("action" in row)) {
-        return { what: row.what, key: row.key ?? null, mouse: row.mouse ?? null };
-      }
-      const kb = bindingFor(row.action, keybindings);
-      return {
-        what: ACTIONS[row.action].label,
-        key: kb ? formatKeybinding(kb, mac) : null,
-        mouse: row.mouse ?? null,
-      };
-    }),
-  }));
+): HelpEntry[] {
+  return ROWS.map((row) => {
+    const kb = bindingFor(row.action, keybindings);
+    return {
+      what: ACTIONS[row.action].label,
+      desc: row.desc ?? null,
+      key: kb ? formatKeybinding(kb, mac) : null,
+    };
+  });
 }
 
 export function HelpDialog(props: { onClose: () => void }) {
@@ -103,23 +72,23 @@ export function HelpDialog(props: { onClose: () => void }) {
             ×
           </button>
         </header>
-        {helpGroups().map((g) => (
-          <section key={g.title} class="help-group">
-            <h3>{g.title}</h3>
-            {g.hint && <p class="help-hint">{g.hint}</p>}
-            <dl class="help-rows">
-              {g.rows.map((row) => (
-                <div key={row.what} class="help-row">
-                  <dt>{row.what}</dt>
-                  <dd>
-                    {row.key && <kbd>{row.key}</kbd>}
-                    {row.mouse && <span class="help-mouse">{row.mouse}</span>}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        ))}
+        <p class="help-intro">{INTRO}</p>
+        <div class="help-table">
+          <div class="help-cols" aria-hidden="true">
+            <span>Action</span>
+            <span>Description</span>
+            <span>Key</span>
+          </div>
+          <dl class="help-rows">
+            {helpRows().map((row) => (
+              <div key={row.what} class="help-row">
+                <dt>{row.what}</dt>
+                <dd class="help-desc">{row.desc}</dd>
+                <dd class="help-key">{row.key && <kbd>{row.key}</kbd>}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       </div>
     </div>
   );

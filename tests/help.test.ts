@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ACTIONS, type ActionId } from "../web/actions.tsx";
-import { helpGroups } from "../web/help.tsx";
+import { helpRows } from "../web/help.tsx";
 
 const bindings = (over: Partial<Record<ActionId, string | null>> = {}) =>
   ({
@@ -15,38 +15,23 @@ const bindings = (over: Partial<Record<ActionId, string | null>> = {}) =>
     ...over,
   }) as Record<ActionId, string | null>;
 
-const rows = (over?: Partial<Record<ActionId, string | null>>) =>
-  helpGroups(bindings(over), true).flatMap((g) => g.rows);
+const rows = (over?: Partial<Record<ActionId, string | null>>) => helpRows(bindings(over), true);
 
-test("every catalog action gets exactly one row, under its catalog label", () => {
+test("every keybound action except show-help gets exactly one row, under its catalog label", () => {
   const labels = rows().map((r) => r.what);
   for (const [id, def] of Object.entries(ACTIONS)) {
-    expect(labels.filter((l) => l === def.label).length, id).toBe(1);
+    const expected = def.keybinding && id !== "show-help" ? 1 : 0;
+    expect(labels.filter((l) => l === def.label).length, id).toBe(expected);
   }
 });
 
-test("keyboard rows show the resolved binding, not the catalog default", () => {
+test("rows show the resolved binding, not the catalog default", () => {
   const remapped = rows({ "annotate-block": "alt+n" }).find(
     (r) => r.what === ACTIONS["annotate-block"].label,
   );
   expect(remapped?.key).toBe("⌥N");
 });
 
-test("an unbound action still appears, pointing at its button", () => {
-  const row = rows().find((r) => r.what === ACTIONS["copy-markdown"].label);
-  expect(row?.key).toBeNull();
-  expect(row?.mouse).toContain("⧉");
-});
-
-test("mouse gestures are grouped alongside the keyboard rows", () => {
-  const groups = helpGroups(bindings(), true);
-  expect(groups.map((g) => g.title)).toEqual(["Annotate", "Review", "Document"]);
-  for (const g of groups) {
-    expect(g.rows.some((r) => r.mouse !== null), g.title).toBe(true);
-    expect(g.rows.some((r) => r.key !== null), g.title).toBe(true);
-  }
-});
-
-test("every row is reachable by some input", () => {
-  for (const r of rows()) expect(r.key ?? r.mouse, r.what).not.toBeNull();
+test("every row carries its key", () => {
+  for (const r of rows()) expect(r.key, r.what).not.toBeNull();
 });

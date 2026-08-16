@@ -644,7 +644,7 @@ button kbd {
 }
 
 .help-panel {
-  width: min(620px, 100%);
+  width: min(720px, 100%);
   max-height: 100%;
   overflow-y: auto;
   background: var(--panel);
@@ -668,48 +668,84 @@ button kbd {
   font-size: 1.05rem;
 }
 
-.help-group h3 {
-  margin: 1.1rem 0 0.35rem;
+/* One grid for the whole cheatsheet: header, group titles, and rows are all cells
+   of .help-table (everything between is display: contents), so the three columns
+   and their separator lines align by construction. */
+.help-table {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+}
+
+.help-table .help-rows,
+.help-cols,
+.help-row {
+  display: contents;
+}
+
+.help-intro {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--muted);
+}
+
+.help-cols > span {
   font-size: 0.75rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
-.help-hint {
-  margin: 0 0 0.5rem;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.help-rows {
+.help-cols > span,
+.help-row dt,
+.help-row dd {
   margin: 0;
+  padding: 0.45rem 1rem;
 }
 
-.help-row {
-  display: grid;
-  grid-template-columns: 1fr 1.2fr;
-  gap: 0.5rem 1rem;
-  align-items: baseline;
-  padding: 0.3rem 0;
+.help-cols > span:first-child,
+.help-row dt {
+  padding-left: 0;
+}
+
+.help-cols > span:last-child,
+.help-key {
+  padding-right: 0;
+  text-align: right;
+}
+
+.help-cols > span + span,
+.help-desc,
+.help-key {
+  border-left: 1px solid var(--line);
+}
+
+.help-row dt,
+.help-row dd {
   border-top: 1px solid var(--line);
 }
 
+.help-row:last-child dt,
+.help-row:last-child dd {
+  border-bottom: 1px solid var(--line);
+}
+
 .help-row dt {
-  min-width: 0;
+  font-weight: 500;
 }
 
-.help-row dd {
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.4rem;
+.help-desc {
   color: var(--muted);
+  font-size: 0.85rem;
 }
 
-.help-mouse {
-  font-size: 0.85rem;
+.help-key kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.05em 0.4em;
+  white-space: nowrap;
 }
 
 /* --- popover ----------------------------------------------------------- */
