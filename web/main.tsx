@@ -555,8 +555,13 @@ function App() {
   const annPopoverRef = useRef<HTMLDivElement>(null);
 
   // The persisted draft behind the open pending form. `id` fills when the create
-  // POST resolves; ops chain on `idPromise` so a fast Escape still deletes it.
-  const draftRef = useRef<{ id: string | null; idPromise: Promise<string | null> } | null>(null);
+  // POST resolves; every write (debounced PATCH, promote, delete) chains on `ops`
+  // so they reach the server in issue order and a fast Escape still deletes it.
+  const draftRef = useRef<{
+    id: string | null;
+    idPromise: Promise<string | null>;
+    ops: Promise<unknown>;
+  } | null>(null);
   const [pendingDraftId, setPendingDraftId] = useState<string | null>(null);
   const [pendingInitial, setPendingInitial] = useState("");
   const [formSession, setFormSession] = useState(0);
@@ -611,29 +616,25 @@ function App() {
     setPendingDraftId(null);
     setPending(null);
     if (h)
-      void h.idPromise.then((id) => {
-        if (id) void deleteAnnotation(id).then(refreshAnnotations);
+      h.ops = h.ops.then(() => {
+        if (h.id) return deleteAnnotation(h.id).then(refreshAnnotations);
       });
   };
 
   const beginPending = (anchor: SelectionAnchor) => {
     cancelPending();
-    const handle = {
-      id: null as string | null,
-      idPromise: postAnnotation({
-        lineRange: anchor.lineRange,
-        anchorText: anchor.anchorText,
-        note: "",
-        draft: true,
-        ...(anchor.blocks ? { block: true as const } : {}),
-      }).then((a) => {
-        if (a && draftRef.current === handle) {
-          handle.id = a.id;
-          setPendingDraftId(a.id);
-        }
-        return a?.id ?? null;
-      }),
-    };
+    const idPromise = postAnnotation({
+      lineRange: anchor.lineRange,
+      anchorText: anchor.anchorText,
+      note: "",
+      draft: true,
+      ...(anchor.blocks ? { block: true as const } : {}),
+    }).then((a) => {
+      if (a) handle.id = a.id;
+      if (a && draftRef.current === handle) setPendingDraftId(a.id);
+      return a?.id ?? null;
+    });
+    const handle = { id: null as string | null, idPromise, ops: idPromise as Promise<unknown> };
     draftRef.current = handle;
     openPendingForm(anchor, "");
   };
@@ -657,7 +658,7 @@ function App() {
     const anchor = draftAnchor(a);
     if (!anchor) return;
     cancelPending();
-    draftRef.current = { id: a.id, idPromise: Promise.resolve(a.id) };
+    draftRef.current = { id: a.id, idPromise: Promise.resolve(a.id), ops: Promise.resolve() };
     setPendingDraftId(a.id);
     openPendingForm(anchor, a.note);
   };
@@ -676,8 +677,8 @@ function App() {
     const h = draftRef.current;
     if (!h) return;
     draftPatchTimer.current = window.setTimeout(() => {
-      void h.idPromise.then((id) => {
-        if (id && draftRef.current === h) void patchAnnotation(id, { note });
+      h.ops = h.ops.then(() => {
+        if (h.id && draftRef.current === h) return patchAnnotation(h.id, { note });
       });
     }, 400);
   };
@@ -690,7 +691,8 @@ function App() {
     setPending(null);
     window.getSelection()?.removeAllRanges();
     if (!h || !p) return;
-    void h.idPromise.then(async (id) => {
+    h.ops = h.ops.then(async () => {
+      const id = h.id;
       const promoted =
         id !== null &&
         (
