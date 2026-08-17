@@ -609,7 +609,12 @@ function App() {
 
   const focusAnnotation = (id: string) => setFocus((f) => ({ id, tick: (f?.tick ?? 0) + 1 }));
 
+  // Latest typed note and whether the server hasn't seen it yet — what the
+  // pagehide flush sends when the tab dies inside the debounce window.
+  const draftNoteRef = useRef({ note: "", dirty: false });
+
   const openPendingForm = (anchor: SelectionAnchor, initial: string) => {
+    draftNoteRef.current = { note: initial, dirty: false };
     setPending(anchor);
     setPendingInitial(initial);
     setFormSession((s) => s + 1);
@@ -618,6 +623,7 @@ function App() {
   const cancelPending = () => {
     const h = draftRef.current;
     draftRef.current = null;
+    draftNoteRef.current.dirty = false;
     setPendingDraftId(null);
     setPending(null);
     if (h)
@@ -688,17 +694,40 @@ function App() {
     if (draftPatchTimer.current) clearTimeout(draftPatchTimer.current);
     const h = draftRef.current;
     if (!h) return;
+    draftNoteRef.current = { note, dirty: true };
     draftPatchTimer.current = window.setTimeout(() => {
       h.ops = h.ops.then(() => {
-        if (h.id && draftRef.current === h) return patchAnnotation(h.id, { note });
+        if (!h.id || draftRef.current !== h) return;
+        if (draftNoteRef.current.note === note) draftNoteRef.current.dirty = false;
+        return patchAnnotation(h.id, { note });
       });
     }, 400);
   };
+
+  // The tab can die inside the debounce window; keepalive lets the PATCH
+  // outlive the page, keeping README's "survives closing the tab" promise.
+  useEffect(() => {
+    const flush = () => {
+      const h = draftRef.current;
+      const d = draftNoteRef.current;
+      if (!h?.id || !d.dirty) return;
+      d.dirty = false;
+      void fetch(api(`/annotations/${encodeURIComponent(h.id)}`), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ note: d.note } satisfies AnnotationPatch),
+        keepalive: true,
+      }).catch(() => {});
+    };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
 
   const submitPending = (note: string) => {
     const h = draftRef.current;
     const p = pending;
     draftRef.current = null;
+    draftNoteRef.current.dirty = false;
     setPendingDraftId(null);
     setPending(null);
     window.getSelection()?.removeAllRanges();
