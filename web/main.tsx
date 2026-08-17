@@ -758,14 +758,16 @@ function App() {
           lineRange: p.lineRange,
           ...(p.blocks ? { block: true as const } : {}),
         };
-    if (!a) {
-      draftRef.current = null;
-      setPendingDraftId(null);
-      setPending(null);
+    const anchor = a ? draftAnchor(a) : null;
+    if (anchor) {
+      setPending(anchor);
       return;
     }
-    const anchor = draftAnchor(a);
-    if (anchor) setPending(anchor);
+    // Draft deleted underneath us, or its text no longer matches the new DOM:
+    // drop the floating form. A persisted draft survives server-side either way.
+    draftRef.current = null;
+    setPendingDraftId(null);
+    setPending(null);
   }, [annotations, doc?.html]);
 
   /** True (and pops the pinned popover, or resumes the draft) when `blocks` already
