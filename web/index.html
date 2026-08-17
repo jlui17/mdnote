@@ -8,6 +8,7 @@
       window.__MDNOTE_CONFIG__ = __MDNOTE_CONFIG_JSON__;
       const theme = window.__MDNOTE_CONFIG__.theme;
       if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      if (window.__MDNOTE_CONFIG__.lineNumbers) document.documentElement.classList.add("line-numbers");
     </script>
     <link rel="stylesheet" href="/style.css" />
   </head>
