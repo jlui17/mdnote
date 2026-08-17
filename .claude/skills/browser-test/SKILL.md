@@ -107,7 +107,7 @@ agent-browser wait --text "some phrase unique to the new content"
 cat "$F.mdnote.json"    # lineRange re-anchored, or status flipped to "stale"
 ```
 
-Only source-file changes push SSE. Annotation CRUD through the API or CLI (`mdnote clear`, a second client's POST) writes the sidecar without repainting open tabs — `agent-browser reload` before asserting the sidebar after those.
+Source-file changes push an `update` SSE event (full reload). Annotation CRUD through the API (a second client's POST, `mdnote clear` when a server is up) pushes a lighter `annotations` event — open tabs refetch annotations and the sidebar updates live, but the doc is not re-rendered. Only a direct sidecar write with no server (the CLI's fallback path) reaches tabs via the file watcher.
 
 ## 6. Test keybindings and remaps
 
