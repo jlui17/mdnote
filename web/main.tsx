@@ -76,13 +76,18 @@ async function sendJson(route: string, method: string, body: unknown): Promise<v
   });
 }
 
+/** Resolves null on any failure — draft handles chain on this promise, so it must never reject. */
 async function postAnnotation(body: NewAnnotation): Promise<Annotation | null> {
-  const res = await fetch(api("/annotations"), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return res.ok ? ((await res.json()) as Annotation) : null;
+  try {
+    const res = await fetch(api("/annotations"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return res.ok ? ((await res.json()) as Annotation) : null;
+  } catch {
+    return null;
+  }
 }
 
 const patchAnnotation = (id: string, body: AnnotationPatch) =>
@@ -634,7 +639,9 @@ function App() {
   };
 
   /** Re-derives a draft's SelectionAnchor against the current DOM. */
-  const draftAnchor = (a: Annotation): SelectionAnchor | null => {
+  const draftAnchor = (
+    a: Pick<Annotation, "anchorText" | "lineRange" | "block">,
+  ): SelectionAnchor | null => {
     const container = docRef.current;
     const { anchorText, lineRange } = a;
     if (!container || !anchorText || !lineRange) return null;
@@ -719,10 +726,18 @@ function App() {
   useLayoutEffect(() => {
     const h = draftRef.current;
     const p = pendingRef.current;
-    if (!h?.id || !p) return;
+    if (!h || !p) return;
     const connected = p.blocks ? p.blocks[0]!.isConnected : p.range.startContainer.isConnected;
     if (connected) return;
-    const a = annotations.find((x) => x.id === h.id);
+    // Create unresolved (or failed): the sidecar can't be consulted yet, so re-derive
+    // from the gesture's own fields; save still works via the fallback POST.
+    const a = h.id
+      ? annotations.find((x) => x.id === h.id)
+      : {
+          anchorText: p.anchorText,
+          lineRange: p.lineRange,
+          ...(p.blocks ? { block: true as const } : {}),
+        };
     if (!a) {
       draftRef.current = null;
       setPendingDraftId(null);
