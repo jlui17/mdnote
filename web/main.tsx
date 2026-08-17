@@ -661,6 +661,9 @@ function App() {
   };
 
   const resumeDraft = (a: Annotation) => {
+    // Already the open form's draft (its visuals can flash as resumable between the
+    // create's persist and its 201): resuming would cancel-delete it under the form.
+    if (draftRef.current?.id === a.id) return;
     const anchor = draftAnchor(a);
     if (!anchor) return;
     cancelPending();
