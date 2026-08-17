@@ -95,7 +95,7 @@ echo 'JSON.stringify([...CSS.highlights.keys()].map(k => [k, CSS.highlights.get(
 agent-browser screenshot out.png    # then Read the png
 ```
 
-Expected names: `mdnote-open`, `mdnote-stale`, `mdnote-pending`, `mdnote-focus`.
+Expected names: `mdnote-open`, `mdnote-stale`, `mdnote-pending`, `mdnote-draft`, `mdnote-focus`.
 
 ## 5. Test live edits / re-anchoring
 
