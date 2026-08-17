@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); name=$(printf '%s' \"$input\" | jq -r .name); root=$(git rev-parse --show-toplevel); path=\"$root/.worktrees/$name\"; if [ ! -d \"$path\" ]; then git worktree add \"$path\" -b \"$name\" >&2; fi; (cd \"$path\" && bun install >&2); echo \"$path\"",
+            "timeout": 120,
+            "statusMessage": "Creating worktree + bun install"
+          }
+        ]
+      }
+    ]
+  }
+}
