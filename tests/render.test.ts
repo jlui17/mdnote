@@ -68,14 +68,14 @@ describe("render", () => {
 
   test("fenced code stamps <pre> including the fence delimiters", () => {
     const html = render("para\n\n```js\nconst x = 1;\n```\n");
-    expect(html).toContain('<pre data-source-line="3-5">');
+    expect(html).toContain('<pre data-source-line="3-5" data-line-start="3">');
     expect(html).toContain('<code class="language-js">');
   });
 
   test("known fence languages get hljs spans, unknown stay plain-escaped", () => {
     const ts = render('```ts\nconst x: string = "hi";\n```\n');
     expect(ts).toContain('<span class="hljs-keyword">const</span>');
-    expect(ts).toContain('<pre data-source-line="1-3">');
+    expect(ts).toContain('<pre data-source-line="1-3" data-line-start="1">');
     const unknown = render("```nosuchlang\n<b>raw</b>\n```\n");
     expect(unknown).not.toContain("hljs-");
     expect(unknown).toContain("&lt;b&gt;raw&lt;/b&gt;");
@@ -83,7 +83,7 @@ describe("render", () => {
 
   test("indented code stamps <pre> once", () => {
     const html = render("para\n\n    indented\n");
-    expect(html).toContain('<pre data-source-line="3-3">');
+    expect(html).toContain('<pre data-source-line="3-3" data-line-start="3">');
     expect(stamps(html).filter((s) => s === "3-3")).toHaveLength(1);
   });
 
@@ -102,12 +102,52 @@ describe("render", () => {
 
   test("horizontal rules are stamped", () => {
     const html = render("a\n\n---\n\nb\n");
-    expect(html).toContain('<hr data-source-line="3-3">');
+    expect(html).toContain('<hr data-source-line="3-3" data-line-start="3">');
   });
 
   test("stamp end is inclusive, never the exclusive markdown-it end", () => {
     const html = render("only line\n");
     expect(stampOf(html, "p", "only line")).toBe("1-1");
+  });
+
+  test("every stamped block also carries data-line-start matching its range start", () => {
+    const html = render("# One\n\nbody\nwrapped\n\n> quote\n");
+    for (const m of html.matchAll(/data-source-line="(\d+)-\d+" data-line-start="(\d+)"/g)) {
+      expect(m[2]).toBe(m[1]!);
+    }
+    expect(html).toContain('data-source-line="3-4" data-line-start="3"');
+  });
+
+  test("fence content lines are wrapped with absolute source line numbers", () => {
+    const html = render("para\n\n```js\nconst x = 1;\nconst y = 2;\n```\n");
+    expect(html).toContain('<span class="code-line" data-line="4">');
+    expect(html).toContain('<span class="code-line" data-line="5">');
+    expect(html).not.toContain('data-line="3"');
+    expect(html).not.toContain('data-line="6"');
+  });
+
+  test("indented code lines are numbered from their first mapped line", () => {
+    const html = render("para\n\n    one\n    two\n");
+    expect(html).toContain('<span class="code-line" data-line="3">one</span>');
+    expect(html).toContain('<span class="code-line" data-line="4">two</span>');
+  });
+
+  test("hljs spans crossing newlines stay balanced per code line", () => {
+    const html = render("```js\nconst s = `first\nsecond`;\n```\n");
+    const body = /<code[^>]*>([\s\S]*)<\/code>/.exec(html)![1]!;
+    for (const line of body.split("\n")) {
+      const opens = [...line.matchAll(/<span\b/g)].length;
+      const closes = [...line.matchAll(/<\/span>/g)].length;
+      expect(opens).toBe(closes);
+    }
+    // textContent is unchanged by the wrapping.
+    expect(body.replace(/<[^>]+>/g, "")).toBe("const s = `first\nsecond`;\n");
+  });
+
+  test("an empty fence gains no code lines and no stray newline", () => {
+    const html = render("```\n```\n");
+    expect(html).not.toContain("code-line");
+    expect(html).toContain("<code></code>");
   });
 
   test("GFM basics render: tables, strikethrough, task lists", () => {

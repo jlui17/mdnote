@@ -15,7 +15,11 @@ function warn(msg: string) {
 
 /** Reads settings.json and merges it over app defaults. Missing file is fine; invalid entries warn and fall back per-key. */
 export function loadConfig(path = settingsPath()): ResolvedConfig {
-  const resolved: ResolvedConfig = { theme: "dark", keybindings: defaultKeybindings() };
+  const resolved: ResolvedConfig = {
+    theme: "dark",
+    lineNumbers: false,
+    keybindings: defaultKeybindings(),
+  };
 
   let raw: string;
   try {
@@ -42,6 +46,14 @@ export function loadConfig(path = settingsPath()): ResolvedConfig {
       resolved.theme = s.theme;
     } else {
       warn(`ignoring theme ${JSON.stringify(s.theme)}: expected "light", "dark", or "system"`);
+    }
+  }
+
+  if (s.lineNumbers !== undefined) {
+    if (typeof s.lineNumbers === "boolean") {
+      resolved.lineNumbers = s.lineNumbers;
+    } else {
+      warn(`ignoring lineNumbers ${JSON.stringify(s.lineNumbers)}: expected true or false`);
     }
   }
 

@@ -149,6 +149,33 @@ body {
   font-size: 0.85em;
 }
 
+/* --- line numbers (settings.json lineNumbers; class set pre-paint) ------ */
+
+:root.line-numbers .doc > [data-line-start] {
+  position: relative;
+}
+:root.line-numbers .doc > [data-line-start]::before {
+  content: attr(data-line-start);
+  position: absolute;
+  right: calc(100% + 0.9rem);
+  top: 0;
+  font: 0.72rem/2.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 400;
+  color: var(--muted);
+}
+/* Code blocks number every line instead; drop their block-start number. */
+:root.line-numbers .doc > pre::before {
+  content: none;
+}
+:root.line-numbers .code-line::before {
+  content: attr(data-line);
+  display: inline-block;
+  width: 3ch;
+  margin-right: 1.25ch;
+  text-align: right;
+  color: var(--muted);
+}
+
 .hljs-keyword,
 .hljs-selector-tag,
 .hljs-literal,

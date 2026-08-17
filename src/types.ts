@@ -7,6 +7,7 @@ export type Theme = "light" | "dark" | "system";
 /** Settings merged over app defaults; the server injects this into index.html as window.__MDNOTE_CONFIG__. */
 export interface ResolvedConfig {
   theme: Theme;
+  lineNumbers: boolean;
   /** Full map, one entry per action; null means unbound. */
   keybindings: Record<ActionId, string | null>;
 }

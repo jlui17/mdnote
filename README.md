@@ -69,6 +69,7 @@ An optional `~/.config/mdnote/settings.json` (honors `$XDG_CONFIG_HOME`) overrid
 ```json
 {
   "theme": "light",
+  "lineNumbers": true,
   "keybindings": {
     "copy-prompt": "mod+p",
     "toggle-theme": "mod+shift+t"
@@ -77,6 +78,7 @@ An optional `~/.config/mdnote/settings.json` (honors `$XDG_CONFIG_HOME`) overrid
 ```
 
 - **`theme`** — `"dark"` (the default), `"light"`, or `"system"` (follow the OS preference).
+- **`lineNumbers`** — `true` shows source line numbers in the preview (default `false`): each top-level block's starting line in a left gutter, and a per-line number column inside code blocks. Prose can't be numbered per visual line — a soft-wrapped paragraph is one source range — so blocks show where they start.
 - **`keybindings`** — action → shortcut, merged over the defaults; `null` unbinds a default. A spec is `mod`/`shift`/`alt` modifiers plus a key, joined by `+` (`mod` is ⌘ on Mac, Ctrl elsewhere). Actions: `copy-prompt` (default `mod+shift+c`), `annotate-block` (default `c`), `annotate-document` (default `shift+c`), `edit-annotation` (default `e`), `delete-annotation` (default `shift+d`), `show-help` (default `shift+?`), and `copy-markdown` and `toggle-theme` (unbound by default).
 
 An invalid entry warns in the server log (`~/.local/state/mdnote/server.log`, truncated each time the server starts) and falls back to the default for that key. Edits apply on page reload; no server restart needed.

@@ -52,6 +52,15 @@ test("settings override defaults per-key", () => {
   expect(cfg.keybindings["copy-prompt"]).toBe("mod+shift+c");
 });
 
+test("lineNumbers defaults off, parses booleans, drops anything else", () => {
+  const path = setup();
+  expect(loadConfig(path).lineNumbers).toBe(false);
+  writeFileSync(path, JSON.stringify({ lineNumbers: true }));
+  expect(loadConfig(path).lineNumbers).toBe(true);
+  writeFileSync(path, JSON.stringify({ lineNumbers: "yes" }));
+  expect(loadConfig(path).lineNumbers).toBe(false);
+});
+
 test("null unbinds a default keybinding", () => {
   const cfg = loadConfig(setup(JSON.stringify({ keybindings: { "copy-prompt": null } })));
   expect(cfg.keybindings["copy-prompt"]).toBeNull();
