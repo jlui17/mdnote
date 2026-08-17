@@ -309,7 +309,9 @@ function useHighlights(
     if (!container || !highlights || !HighlightCtor) return;
     const ranges: Range[] = [];
     for (const a of drafts) {
-      if (!a.anchorText || a.block) continue;
+      // A draft without a lineRange can't rebuild a resume anchor; painting it
+      // would advertise a permanently dead click target.
+      if (!a.anchorText || a.block || !a.lineRange) continue;
       const range = findRange(container, a.anchorText, a.lineRange);
       if (!range) continue;
       draftRangesRef.current.push({ id: a.id, range });
@@ -373,6 +375,7 @@ function useBlockBoxes(
     blocksRef.current = [];
     for (const a of container ? annotations : []) {
       if (!a.block || !a.anchorText) continue;
+      if (a.draft && !a.lineRange) continue; // no lineRange means no resume anchor
       const els = findBlocks(container!, a.anchorText, a.lineRange);
       if (els) blocksRef.current.push({ id: a.id, els, status: a.status, draft: a.draft === true });
     }
@@ -660,23 +663,23 @@ function App() {
     return range ? { lineRange, anchorText, rect: range.getBoundingClientRect(), range } : null;
   };
 
-  const resumeDraft = (a: Annotation) => {
+  /** True when the gesture is handled — the form opened, or was already open on this id. */
+  const resumeDraft = (a: Annotation): boolean => {
     // Already the open form's draft (its visuals can flash as resumable between the
     // create's persist and its 201): resuming would cancel-delete it under the form.
-    if (draftRef.current?.id === a.id) return;
+    if (draftRef.current?.id === a.id) return true;
     const anchor = draftAnchor(a);
-    if (!anchor) return;
+    if (!anchor) return false;
     cancelPending();
     draftRef.current = { id: a.id, idPromise: Promise.resolve(a.id), ops: Promise.resolve() };
     setPendingDraftId(a.id);
     openPendingForm(anchor, a.note);
+    return true;
   };
 
   const resumeDraftById = (id: string): boolean => {
     const a = annotations.find((x) => x.id === id);
-    if (!a) return false;
-    resumeDraft(a);
-    return true;
+    return a ? resumeDraft(a) : false;
   };
 
   const draftPatchTimer = useRef<number | null>(null);
@@ -913,13 +916,12 @@ function App() {
     }
     const inBox = boxAt(blockBoxes, e.pageX, e.pageY);
     if (inBox) {
-      if (inBox.draft) {
-        resumeDraftById(inBox.id);
+      if (!inBox.draft) {
+        focusAnnotation(inBox.id);
+        setOpenAnn({ id: inBox.id, rect: viewportRect(inBox.box), editing: false, pinned: true });
         return;
       }
-      focusAnnotation(inBox.id);
-      setOpenAnn({ id: inBox.id, rect: viewportRect(inBox.box), editing: false, pinned: true });
-      return;
+      if (resumeDraftById(inBox.id)) return;
     }
     annotateBlock(target.closest("[data-source-line]"));
   };
