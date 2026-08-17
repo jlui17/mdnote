@@ -12,6 +12,8 @@
   --hl-open: light-dark(#f3dfa8, #4d3a08);
   --hl-stale: light-dark(#ccd0da, #33363b);
   --hl-pending: color-mix(in srgb, var(--accent) 28%, transparent);
+  --hl-draft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --hl-draft-edge: color-mix(in srgb, var(--accent) 55%, transparent);
   --hover-bar: color-mix(in srgb, var(--accent) 55%, transparent);
   --hl-focus: light-dark(#eebe77, #7d5f0a);
   --code-keyword: light-dark(#8839ef, #c795e0);
@@ -284,6 +286,12 @@ body {
   background: var(--hl-stale);
 }
 
+/* Interrupted draft: dashed edge marks "unsaved, click to resume". */
+.block-box.draft {
+  background: var(--hl-draft);
+  outline: 1px dashed var(--hl-draft-edge);
+}
+
 .block-box.flash {
   animation: block-flash 1.2s ease-out;
 }
@@ -334,6 +342,12 @@ body {
 
 ::highlight(mdnote-pending) {
   background-color: var(--hl-pending);
+}
+
+::highlight(mdnote-draft) {
+  background-color: var(--hl-draft);
+  text-decoration: underline dashed;
+  text-decoration-color: var(--hl-draft-edge);
 }
 
 ::highlight(mdnote-focus) {

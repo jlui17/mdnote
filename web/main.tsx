@@ -1,5 +1,5 @@
 import { Fragment, render, type RefObject } from "preact";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import type {
   Annotation,
   AnnotationPatch,
@@ -76,7 +76,14 @@ async function sendJson(route: string, method: string, body: unknown): Promise<v
   });
 }
 
-const postAnnotation = (body: NewAnnotation) => sendJson("/annotations", "POST", body);
+async function postAnnotation(body: NewAnnotation): Promise<Annotation | null> {
+  const res = await fetch(api("/annotations"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.ok ? ((await res.json()) as Annotation) : null;
+}
 
 const patchAnnotation = (id: string, body: AnnotationPatch) =>
   sendJson(`/annotations/${encodeURIComponent(id)}`, "PATCH", body);
@@ -265,12 +272,14 @@ function useDocSync(onReload: () => void) {
 
 function useHighlights(
   docRef: RefObject<HTMLDivElement>,
-  annotations: Annotation[],
+  saved: Annotation[],
+  drafts: Annotation[],
   docHtml: string | undefined,
   pending: SelectionAnchor | null,
   focus: { id: string; tick: number } | null,
 ) {
   const rangesRef = useRef<{ id: string; range: Range }[]>([]);
+  const draftRangesRef = useRef<{ id: string; range: Range }[]>([]);
 
   useEffect(() => {
     const container = docRef.current;
@@ -278,7 +287,7 @@ function useHighlights(
     if (!container || !highlights || !HighlightCtor) return;
     const open: Range[] = [];
     const stale: Range[] = [];
-    for (const a of annotations) {
+    for (const a of saved) {
       if (!a.anchorText || a.block) continue;
       const range = findRange(container, a.anchorText, a.lineRange);
       if (!range) continue;
@@ -287,7 +296,22 @@ function useHighlights(
     }
     setHighlight("mdnote-open", open);
     setHighlight("mdnote-stale", stale);
-  }, [annotations, docHtml]);
+  }, [saved, docHtml]);
+
+  useEffect(() => {
+    const container = docRef.current;
+    draftRangesRef.current = [];
+    if (!container || !highlights || !HighlightCtor) return;
+    const ranges: Range[] = [];
+    for (const a of drafts) {
+      if (!a.anchorText || a.block) continue;
+      const range = findRange(container, a.anchorText, a.lineRange);
+      if (!range) continue;
+      draftRangesRef.current.push({ id: a.id, range });
+      ranges.push(range);
+    }
+    setHighlight("mdnote-draft", ranges);
+  }, [drafts, docHtml]);
 
   useEffect(() => {
     setHighlight("mdnote-pending", pending && !pending.blocks ? [pending.range] : []);
@@ -306,7 +330,7 @@ function useHighlights(
     };
   }, [focus]);
 
-  return rangesRef;
+  return { rangesRef, draftRangesRef };
 }
 
 /** Block annotations paint a box, not a text highlight; the box is chrome outside
@@ -317,11 +341,20 @@ function useBlockBoxes(
   annotations: Annotation[],
   docHtml: string | undefined,
 ) {
-  const blocksRef = useRef<{ id: string; els: Element[]; status: AnnotationStatus }[]>([]);
-  const [boxes, setBoxes] = useState<{ id: string; status: AnnotationStatus; box: Box }[]>([]);
+  const blocksRef = useRef<
+    { id: string; els: Element[]; status: AnnotationStatus; draft: boolean }[]
+  >([]);
+  const [boxes, setBoxes] = useState<
+    { id: string; status: AnnotationStatus; draft: boolean; box: Box }[]
+  >([]);
 
   const measure = () => {
-    const next = blocksRef.current.map((b) => ({ id: b.id, status: b.status, box: paddedBox(b.els) }));
+    const next = blocksRef.current.map((b) => ({
+      id: b.id,
+      status: b.status,
+      draft: b.draft,
+      box: paddedBox(b.els),
+    }));
     separateBoxes(
       next.map((n) => n.box),
       2 * HALO_Y,
@@ -336,7 +369,7 @@ function useBlockBoxes(
     for (const a of container ? annotations : []) {
       if (!a.block || !a.anchorText) continue;
       const els = findBlocks(container!, a.anchorText, a.lineRange);
-      if (els) blocksRef.current.push({ id: a.id, els, status: a.status });
+      if (els) blocksRef.current.push({ id: a.id, els, status: a.status, draft: a.draft === true });
     }
     measure();
   }, [annotations, docHtml]);
@@ -353,7 +386,8 @@ function useDocEvents(args: {
   docRef: RefObject<HTMLDivElement>;
   popoverRef: RefObject<HTMLDivElement>;
   annPopoverRef: RefObject<HTMLDivElement>;
-  setPending: (p: SelectionAnchor | null) => void;
+  beginPendingRef: { current: (anchor: SelectionAnchor) => void };
+  cancelPendingRef: { current: () => void };
   setOpenAnn: (a: null) => void;
   setHovered: (el: Element | null) => void;
   pinnedRef: { current: boolean };
@@ -376,10 +410,9 @@ function useDocEvents(args: {
       // has a note; open it pinned instead of stacking a duplicate.
       if (anchor?.blocks && args.openIfBlockAnnotatedRef.current(anchor.blocks)) {
         window.getSelection()?.removeAllRanges();
-        args.setPending(null);
         return;
       }
-      args.setPending(anchor);
+      if (anchor) args.beginPendingRef.current(anchor);
     };
     const onMouseDown = (e: MouseEvent) => {
       if (inPopover(e.target)) return;
@@ -387,12 +420,12 @@ function useDocEvents(args: {
         args.popoverRef.current !== null ||
         (args.annPopoverRef.current !== null && args.pinnedRef.current);
       draggedRef.current = false;
-      args.setPending(null);
+      args.cancelPendingRef.current();
       args.setOpenAnn(null);
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        args.setPending(null);
+        args.cancelPendingRef.current();
         args.setOpenAnn(null);
       }
     };
@@ -426,7 +459,7 @@ type OpenAnn = { id: string; rect: DOMRect; editing: boolean; pinned: boolean };
 /** Resting on an annotation opens its popover; the pointer may cross the gap into the popover. */
 function useHoverPreview(args: {
   rangesRef: RefObject<{ id: string; range: Range }[]>;
-  boxesRef: RefObject<{ id: string; box: Box }[]>;
+  boxesRef: RefObject<{ id: string; box: Box; draft: boolean }[]>;
   annPopoverRef: RefObject<HTMLDivElement>;
   pinnedRef: { current: boolean };
   formOpenRef: { current: boolean };
@@ -456,7 +489,12 @@ function useHoverPreview(args: {
       const hit =
         caret && args.rangesRef.current?.find((r) => r.range.isPointInRange(caret.node, caret.offset));
       if (hit) return ctl.enter({ id: hit.id, rect: hit.range.getBoundingClientRect() });
-      const inBox = boxAt(args.boxesRef.current ?? [], at.x + window.scrollX, at.y + window.scrollY);
+      // Drafts have no note to preview; hover passes through, click resumes the form.
+      const inBox = boxAt(
+        (args.boxesRef.current ?? []).filter((b) => !b.draft),
+        at.x + window.scrollX,
+        at.y + window.scrollY,
+      );
       if (inBox) ctl.enter({ id: inBox.id, rect: viewportRect(inBox.box) });
       else ctl.leave();
     };
@@ -511,14 +549,40 @@ function App() {
   const popoverRef = useRef<HTMLDivElement>(null);
   const annPopoverRef = useRef<HTMLDivElement>(null);
 
+  // The persisted draft behind the open pending form. `id` fills when the create
+  // POST resolves; ops chain on `idPromise` so a fast Escape still deletes it.
+  const draftRef = useRef<{ id: string | null; idPromise: Promise<string | null> } | null>(null);
+  const [pendingDraftId, setPendingDraftId] = useState<string | null>(null);
+  const [pendingInitial, setPendingInitial] = useState("");
+  const [formSession, setFormSession] = useState(0);
+
   const { doc, annotations, refreshAnnotations } = useDocSync(() => {
-    setPending(null);
+    if (!draftRef.current) setPending(null);
     setOpenAnn(null);
   });
-  const rangesRef = useHighlights(docRef, annotations, doc?.html, pending, focus);
+
+  const saved = useMemo(() => annotations.filter((a) => !a.draft), [annotations]);
+  // The active draft's visuals are the pending highlight/box, not the draft ones.
+  const inactiveDrafts = useMemo(
+    () => annotations.filter((a) => a.draft && a.id !== pendingDraftId),
+    [annotations, pendingDraftId],
+  );
+  const boxAnnotations = useMemo(
+    () => annotations.filter((a) => a.id !== pendingDraftId),
+    [annotations, pendingDraftId],
+  );
+
+  const { rangesRef, draftRangesRef } = useHighlights(
+    docRef,
+    saved,
+    inactiveDrafts,
+    doc?.html,
+    pending,
+    focus,
+  );
   const { boxes: blockBoxes, blocksRef: blockAnnotationsRef } = useBlockBoxes(
     docRef,
-    annotations,
+    boxAnnotations,
     doc?.html,
   );
   const pinnedRef = useRef(false);
@@ -530,17 +594,158 @@ function App() {
 
   const focusAnnotation = (id: string) => setFocus((f) => ({ id, tick: (f?.tick ?? 0) + 1 }));
 
-  /** True (and pops the pinned popover) when `blocks` already carries a `block: true`
-   *  annotation — the duplicate-stacking guard shared by click, `c`, and drag promotion. */
+  const openPendingForm = (anchor: SelectionAnchor, initial: string) => {
+    setPending(anchor);
+    setPendingInitial(initial);
+    setFormSession((s) => s + 1);
+  };
+
+  const cancelPending = () => {
+    const h = draftRef.current;
+    draftRef.current = null;
+    setPendingDraftId(null);
+    setPending(null);
+    if (h)
+      void h.idPromise.then((id) => {
+        if (id) void deleteAnnotation(id).then(refreshAnnotations);
+      });
+  };
+
+  const beginPending = (anchor: SelectionAnchor) => {
+    cancelPending();
+    const handle = {
+      id: null as string | null,
+      idPromise: postAnnotation({
+        lineRange: anchor.lineRange,
+        anchorText: anchor.anchorText,
+        note: "",
+        draft: true,
+        ...(anchor.blocks ? { block: true as const } : {}),
+      }).then((a) => {
+        if (a && draftRef.current === handle) {
+          handle.id = a.id;
+          setPendingDraftId(a.id);
+        }
+        return a?.id ?? null;
+      }),
+    };
+    draftRef.current = handle;
+    openPendingForm(anchor, "");
+  };
+
+  /** Re-derives a draft's SelectionAnchor against the current DOM. */
+  const draftAnchor = (a: Annotation): SelectionAnchor | null => {
+    const container = docRef.current;
+    const { anchorText, lineRange } = a;
+    if (!container || !anchorText || !lineRange) return null;
+    if (a.block) {
+      const els = findBlocks(container, anchorText, lineRange);
+      return els ? blockAnchor(els) : null;
+    }
+    const range = findRange(container, anchorText, lineRange);
+    return range ? { lineRange, anchorText, rect: range.getBoundingClientRect(), range } : null;
+  };
+
+  const resumeDraft = (a: Annotation) => {
+    const anchor = draftAnchor(a);
+    if (!anchor) return;
+    cancelPending();
+    draftRef.current = { id: a.id, idPromise: Promise.resolve(a.id) };
+    setPendingDraftId(a.id);
+    openPendingForm(anchor, a.note);
+  };
+
+  const resumeDraftById = (id: string): boolean => {
+    const a = annotations.find((x) => x.id === id);
+    if (!a) return false;
+    resumeDraft(a);
+    return true;
+  };
+
+  const draftPatchTimer = useRef<number | null>(null);
+  // 400ms: batches keystrokes while keeping the persisted draft close behind the textarea.
+  const onDraftInput = (note: string) => {
+    if (draftPatchTimer.current) clearTimeout(draftPatchTimer.current);
+    const h = draftRef.current;
+    if (!h) return;
+    draftPatchTimer.current = window.setTimeout(() => {
+      void h.idPromise.then((id) => {
+        if (id && draftRef.current === h) void patchAnnotation(id, { note });
+      });
+    }, 400);
+  };
+
+  const submitPending = (note: string) => {
+    const h = draftRef.current;
+    const p = pending;
+    draftRef.current = null;
+    setPendingDraftId(null);
+    setPending(null);
+    window.getSelection()?.removeAllRanges();
+    if (!h || !p) return;
+    void h.idPromise.then(async (id) => {
+      const promoted =
+        id !== null &&
+        (
+          await fetch(api(`/annotations/${encodeURIComponent(id)}`), {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ note, draft: false } satisfies AnnotationPatch),
+          })
+        ).ok;
+      // The draft can be gone (deleted by reanchor under a concurrent edit, or by
+      // another tab); the note in hand still gets saved.
+      if (!promoted)
+        await postAnnotation({
+          lineRange: p.lineRange,
+          anchorText: p.anchorText,
+          note,
+          ...(p.blocks ? { block: true as const } : {}),
+        });
+      await refreshAnnotations();
+    });
+  };
+
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
+  const beginPendingRef = useRef(beginPending);
+  beginPendingRef.current = beginPending;
+  const cancelPendingRef = useRef(cancelPending);
+  cancelPendingRef.current = cancelPending;
+
+  // A reload that rewrote the doc island leaves the open draft form anchored to
+  // detached DOM; re-derive the anchor from the (re-anchored) draft annotation,
+  // or drop the form when reanchor deleted the draft underneath it.
+  useLayoutEffect(() => {
+    const h = draftRef.current;
+    const p = pendingRef.current;
+    if (!h?.id || !p) return;
+    const connected = p.blocks ? p.blocks[0]!.isConnected : p.range.startContainer.isConnected;
+    if (connected) return;
+    const a = annotations.find((x) => x.id === h.id);
+    if (!a) {
+      draftRef.current = null;
+      setPendingDraftId(null);
+      setPending(null);
+      return;
+    }
+    const anchor = draftAnchor(a);
+    if (anchor) setPending(anchor);
+  }, [annotations, doc?.html]);
+
+  /** True (and pops the pinned popover, or resumes the draft) when `blocks` already
+   *  carries a `block: true` annotation — the duplicate-stacking guard shared by
+   *  click, `c`, and drag promotion. */
   const openIfBlockAnnotated = (blocks: Element[]): boolean => {
-    const existingId = blockAnnotationsRef.current.find(
+    const existing = blockAnnotationsRef.current.find(
       (b) => b.els.length === blocks.length && b.els.every((el, i) => el === blocks[i]),
-    )?.id;
-    if (!existingId) return false;
-    focusAnnotation(existingId);
-    const box = blockBoxes.find((b) => b.id === existingId)?.box;
+    );
+    if (!existing) return false;
+    if (existing.draft) return resumeDraftById(existing.id);
+    focusAnnotation(existing.id);
+    const box = blockBoxes.find((b) => b.id === existing.id)?.box;
     setOpenAnn({
-      id: existingId,
+      id: existing.id,
       rect: box ? viewportRect(box) : blocks[0]!.getBoundingClientRect(),
       editing: false,
       pinned: true,
@@ -554,7 +759,8 @@ function App() {
     docRef,
     popoverRef,
     annPopoverRef,
-    setPending,
+    beginPendingRef,
+    cancelPendingRef,
     setOpenAnn,
     setHovered,
     pinnedRef,
@@ -615,7 +821,7 @@ function App() {
     if (!block || !docRef.current?.contains(block)) return;
     if (openIfBlockAnnotated([block])) return;
     const anchor = blockAnchor([block]);
-    if (anchor) setPending(anchor);
+    if (anchor) beginPending(anchor);
   };
 
   useAction("annotate-block", () => annotateBlock(hovered));
@@ -624,7 +830,7 @@ function App() {
   // else the last-clicked (focused) entry. What the pointer is on beats the
   // stale focus a hover-opened popover leaves untouched.
   const entryTarget = (id: string | null | undefined) =>
-    id && annotations.some((a) => a.id === id) ? id : null;
+    id && saved.some((a) => a.id === id) ? id : null;
   const sidebarTarget = entryTarget(hoveredEntryId) ?? (openAnn ? null : entryTarget(focus?.id));
 
   useAction("edit-annotation", () => {
@@ -663,9 +869,17 @@ function App() {
         });
         return;
       }
+      const draftHit = draftRangesRef.current.find((r) =>
+        r.range.isPointInRange(caret.node, caret.offset),
+      );
+      if (draftHit && resumeDraftById(draftHit.id)) return;
     }
     const inBox = boxAt(blockBoxes, e.pageX, e.pageY);
     if (inBox) {
+      if (inBox.draft) {
+        resumeDraftById(inBox.id);
+        return;
+      }
       focusAnnotation(inBox.id);
       setOpenAnn({ id: inBox.id, rect: viewportRect(inBox.box), editing: false, pinned: true });
       return;
@@ -703,10 +917,10 @@ function App() {
           }}
         />
       )}
-      {blockBoxes.map(({ id, status, box }) => (
+      {blockBoxes.map(({ id, status, draft, box }) => (
         <div
           key={focus?.id === id ? `${id}:${focus.tick}` : id}
-          class={`block-box ${status}${focus?.id === id ? " flash" : ""}`}
+          class={`block-box ${draft ? "draft" : status}${focus?.id === id ? " flash" : ""}`}
           style={boxStyle(box)}
         />
       ))}
@@ -720,7 +934,7 @@ function App() {
       />
       <Sidebar
         path={doc?.path}
-        annotations={annotations}
+        annotations={saved}
         focus={focus}
         onFocus={scrollTo}
         onDelete={setConfirmDeleteId}
@@ -758,17 +972,13 @@ function App() {
       )}
       {pending && (
         <Popover
+          key={formSession}
           popoverRef={popoverRef}
           rect={pending.rect}
-          onPick={(note) =>
-            submit({
-              lineRange: pending.lineRange,
-              anchorText: pending.anchorText,
-              note,
-              ...(pending.blocks ? { block: true as const } : {}),
-            })
-          }
-          onCancel={() => setPending(null)}
+          initial={pendingInitial}
+          onChange={onDraftInput}
+          onPick={submitPending}
+          onCancel={cancelPending}
         />
       )}
     </>
@@ -785,6 +995,7 @@ function NoteForm(props: {
   class?: string;
   onSubmit: (note: string) => void;
   onCancel: () => void;
+  onChange?: (note: string) => void;
 }) {
   const [note, setNote] = useState(props.initial ?? "");
 
@@ -802,7 +1013,11 @@ function NoteForm(props: {
         placeholder={props.placeholder}
         value={note}
         ref={focusOnMount}
-        onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
+        onInput={(e) => {
+          const value = (e.target as HTMLTextAreaElement).value;
+          setNote(value);
+          props.onChange?.(value);
+        }}
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
             (e.target as HTMLTextAreaElement).form?.requestSubmit();
@@ -1086,14 +1301,24 @@ function AnnotationPopover(props: {
 function Popover(props: {
   popoverRef: { current: HTMLDivElement | null };
   rect: DOMRect;
+  initial?: string;
   onPick: (note: string) => void;
   onCancel: () => void;
+  onChange?: (note: string) => void;
 }) {
   const pos = usePopoverPosition(props.popoverRef, props.rect);
 
   return (
     <div class="popover" ref={props.popoverRef} style={{ left: `${pos.left}px`, top: `${pos.top}px` }}>
-      <NoteForm rows={2} placeholder="Note…" submitLabel="Add" onSubmit={props.onPick} onCancel={props.onCancel} />
+      <NoteForm
+        rows={2}
+        placeholder="Note…"
+        initial={props.initial}
+        submitLabel="Add"
+        onSubmit={props.onPick}
+        onCancel={props.onCancel}
+        onChange={props.onChange}
+      />
     </div>
   );
 }
