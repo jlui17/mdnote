@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isMarkdownPath, pathToUrl, startServer } from "../src/server.ts";
@@ -53,6 +53,46 @@ describe("path-as-URL addressing", () => {
   test("GET an unknown path 404s", async () => {
     const res = await fetch(base + "/some/other/file.md");
     expect(res.status).toBe(404);
+  });
+});
+
+describe("images under a registered doc's directory", () => {
+  test("GET an image in the doc's subdirectory serves it with its type", async () => {
+    mkdirSync(join(dir, "assets"), { recursive: true });
+    writeFileSync(join(dir, "assets", "diagram.svg"), "<svg xmlns='http://www.w3.org/2000/svg'/>");
+    const res = await fetch(base + pathToUrl(join(dir, "assets", "diagram.svg")));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(await res.text()).toContain("<svg");
+  });
+
+  test("GET an image outside every registered doc's directory 404s", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "mdnote-outside-"));
+    writeFileSync(join(outside, "leak.svg"), "<svg/>");
+    const res = await fetch(base + pathToUrl(join(outside, "leak.svg")));
+    expect(res.status).toBe(404);
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  test("GET a missing image under the doc's directory 404s", async () => {
+    const res = await fetch(base + pathToUrl(join(dir, "assets", "missing.png")));
+    expect(res.status).toBe(404);
+  });
+
+  test("GET an image-named symlink pointing outside the doc's directory 404s", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "mdnote-secret-"));
+    writeFileSync(join(outside, "secret.txt"), "private key material");
+    symlinkSync(join(outside, "secret.txt"), join(dir, "evil.png"));
+    const res = await fetch(base + pathToUrl(join(dir, "evil.png")));
+    expect(res.status).toBe(404);
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  test("GET a symlink resolving inside the doc's directory still serves", async () => {
+    symlinkSync(join(dir, "assets", "diagram.svg"), join(dir, "alias.svg"));
+    const res = await fetch(base + pathToUrl(join(dir, "alias.svg")));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
   });
 });
 

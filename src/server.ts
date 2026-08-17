@@ -1,4 +1,4 @@
-import { existsSync, statSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { render } from "./render.ts";
 import { locate, reanchor } from "./anchor.ts";
@@ -34,6 +34,15 @@ export function isMarkdownPath(file: string): boolean {
   const ext = extname(file).toLowerCase();
   return ext === ".md" || ext === ".markdown";
 }
+
+const IMAGE_TYPES: Record<string, string> = {
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -301,6 +310,27 @@ export async function startServer(opts: {
         return new Response(renderIndex([...files.keys()]), {
           headers: { "content-type": "text/html; charset=utf-8" },
         });
+
+      const imageType = IMAGE_TYPES[extname(docPath).toLowerCase()];
+      if (imageType) {
+        let imagePath: string;
+        try {
+          imagePath = realpathSync(docPath);
+        } catch {
+          return new Response("not found", { status: 404 });
+        }
+        const owned = [...files.keys()].some((doc) => {
+          let dir: string;
+          try {
+            dir = realpathSync(dirname(doc));
+          } catch {
+            return false;
+          }
+          return imagePath.startsWith(dir === "/" ? dir : dir + "/");
+        });
+        if (!owned) return new Response("not found", { status: 404 });
+        return new Response(Bun.file(imagePath), { headers: { "content-type": imageType } });
+      }
 
       const known = files.get(docPath);
       if (known) touch(known);
