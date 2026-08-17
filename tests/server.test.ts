@@ -281,8 +281,11 @@ describe("watchers and SSE scoping", () => {
 });
 
 describe("rename-style writes and mutation broadcast", () => {
-  /** Connect an SSE client for `file`, run `act`, and report whether an update arrived. */
-  async function updateAfter(act: () => void | Promise<void>): Promise<boolean> {
+  /** Connect an SSE client for `file`, run `act`, and report whether `event` arrived. */
+  async function updateAfter(
+    act: () => void | Promise<void>,
+    event = "update",
+  ): Promise<boolean> {
     const res = await fetch(`${base}/api/events?file=${encodeURIComponent(file)}`);
     const reader = res.body!.getReader();
     await reader.read();
@@ -294,7 +297,7 @@ describe("rename-style writes and mutation broadcast", () => {
       for (;;) {
         const chunk = await Promise.race([reader.read(), deadline]);
         if (chunk === null || chunk.done) return false;
-        if (decoder.decode(chunk.value).includes("event: update")) return true;
+        if (decoder.decode(chunk.value).includes(`event: ${event}`)) return true;
       }
     } finally {
       await reader.cancel();
@@ -319,7 +322,7 @@ describe("rename-style writes and mutation broadcast", () => {
     expect(heard).toBe(true);
   });
 
-  test("an annotation POST broadcasts to connected clients", async () => {
+  test("an annotation POST broadcasts a sidecar-only annotations event", async () => {
     const heard = await updateAfter(async () => {
       const res = await fetch(`${base}/api/annotations?file=${encodeURIComponent(file)}`, {
         method: "POST",
@@ -327,7 +330,7 @@ describe("rename-style writes and mutation broadcast", () => {
         body: JSON.stringify({ lineRange: [1, 1], anchorText: "Hello", note: "broadcast me" }),
       });
       expect(res.status).toBe(201);
-    });
+    }, "annotations");
     expect(heard).toBe(true);
   });
 });

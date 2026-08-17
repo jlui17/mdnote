@@ -145,10 +145,12 @@ export async function startServer(opts: {
     saveRegistry(new Map([...files].map(([f, s]) => [f, s.touchedAt])));
   }
 
-  function broadcast(state: FileState) {
+  /** `update` means the rendered doc may have changed (full reload); `annotations`
+   *  means only the sidecar did (clients refetch annotations alone). */
+  function broadcast(state: FileState, event: "update" | "annotations" = "update") {
     for (const c of state.clients) {
       try {
-        c.enqueue(encoder.encode("event: update\ndata: {}\n\n"));
+        c.enqueue(encoder.encode(`event: ${event}\ndata: {}\n\n`));
       } catch {
         state.clients.delete(c);
       }
@@ -358,7 +360,7 @@ export async function startServer(opts: {
     const persist = (annotations: Annotation[]) => {
       writeSidecar(file, { version: 1, annotations });
       markSeen(sidecarPath(file));
-      broadcast(state);
+      broadcast(state, "annotations");
     };
 
     if (req.method === "GET" && path === "/doc") {

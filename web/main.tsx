@@ -265,6 +265,8 @@ function useDocSync(onReload: () => void) {
     let firstOpen = true;
     const events = new EventSource(api("/events"));
     events.addEventListener("update", reload);
+    // Sidecar-only mutations: annotations refetch, no doc re-render or scroll dance.
+    events.addEventListener("annotations", () => void refreshAnnotations());
     events.addEventListener("open", () => {
       if (firstOpen) firstOpen = false;
       else reload();
