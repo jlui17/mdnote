@@ -31,6 +31,9 @@ export interface Annotation {
   /** Set when the annotation came from a whole-block gesture; presentation paints a
    *  block box instead of a text highlight. Absent on text-selection annotations. */
   block?: true;
+  /** An in-progress note whose form was interrupted (blur, reload, tab close).
+   *  Hidden from the sidebar, `comments`, and the review prompt; cleared on save. */
+  draft?: true;
 }
 
 export interface Sidecar {
@@ -38,9 +41,10 @@ export interface Sidecar {
   annotations: Annotation[];
 }
 
-/** Body of PATCH /annotations/:id. */
+/** Body of PATCH /annotations/:id. `draft: false` promotes a draft to a saved annotation. */
 export interface AnnotationPatch {
   note: string;
+  draft?: false;
 }
 
 /** Body of POST /annotations. Server assigns id, createdAt, status. */
@@ -49,6 +53,7 @@ export interface NewAnnotation {
   anchorText: string | null;
   note: string;
   block?: true;
+  draft?: true;
 }
 
 export interface DocResponse {

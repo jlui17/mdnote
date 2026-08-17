@@ -99,11 +99,17 @@ export function locate(
 }
 
 export function reanchor(source: string, annotations: Annotation[]): Annotation[] {
-  return annotations.map((a) => {
-    if (a.anchorText === null) return a;
+  const out: Annotation[] = [];
+  for (const a of annotations) {
+    if (a.anchorText === null) {
+      out.push(a);
+      continue;
+    }
     const found = locate(source, a.anchorText, a.lineRange ?? undefined);
-    return found
-      ? { ...a, lineRange: found, status: "open" as const }
-      : { ...a, status: "stale" as const };
-  });
+    if (found) out.push({ ...a, lineRange: found, status: "open" as const });
+    // A stale draft has no resume handle (drafts paint only through their doc
+    // anchor), so it is deleted rather than kept invisible and immortal.
+    else if (!a.draft) out.push({ ...a, status: "stale" as const });
+  }
+  return out;
 }

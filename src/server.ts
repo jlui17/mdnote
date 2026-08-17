@@ -385,6 +385,7 @@ export async function startServer(opts: {
           createdAt: new Date().toISOString(),
           status: "open",
           ...(body.block && body.anchorText ? { block: true as const } : {}),
+          ...(body.draft && body.anchorText ? { draft: true as const } : {}),
         };
         const sidecar = readSidecar(file);
         sidecar.annotations.push(created);
@@ -407,6 +408,7 @@ export async function startServer(opts: {
         const target = sidecar.annotations.find((a) => a.id === id);
         if (!target) return json({ error: "annotation not found" }, 404);
         target.note = body.note;
+        if (body.draft === false) delete target.draft;
         persist(sidecar.annotations);
         return json(target);
       }

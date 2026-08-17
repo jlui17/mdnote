@@ -137,6 +137,25 @@ describe("reanchor", () => {
     expect(out[0]!.lineRange).toEqual([13, 13]);
   });
 
+  test("a draft that re-anchors survives with its flag", () => {
+    const moved = "new intro\n\nmore intro\n\n" + doc;
+    const out = reanchor(moved, [
+      ann({ anchorText: "Filler paragraph.", lineRange: [13, 13], draft: true }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.draft).toBe(true);
+    expect(out[0]!.status).toBe("open");
+    expect(out[0]!.lineRange).toEqual([17, 17]);
+  });
+
+  test("a draft whose anchor text is gone is deleted, not marked stale", () => {
+    const out = reanchor(doc, [
+      ann({ anchorText: "deleted sentence", lineRange: [3, 3], draft: true }),
+      ann({ id: "b", anchorText: "Filler paragraph.", lineRange: [13, 13] }),
+    ]);
+    expect(out.map((a) => a.id)).toEqual(["b"]);
+  });
+
   test("global annotations pass through untouched", () => {
     const global = ann({ lineRange: null, anchorText: null });
     const out = reanchor(doc, [global]);

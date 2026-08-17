@@ -185,6 +185,7 @@ async function cmdComments(args: string[]) {
     } catch {}
   }
   annotations ??= readSidecar(file).annotations;
+  annotations = annotations.filter((a) => !a.draft);
 
   if (flags.json) {
     console.log(JSON.stringify({ file, annotations }));

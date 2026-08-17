@@ -145,6 +145,26 @@ describe("/api routes carry file identity", () => {
     for (const a of [blocky, texty])
       await fetch(`${base}/api/annotations/${a.id}${q}`, { method: "DELETE" });
   });
+
+  test("POST carries the draft flag through and PATCH draft:false promotes", async () => {
+    const q = `?file=${encodeURIComponent(file)}`;
+    const created = await fetch(`${base}/api/annotations${q}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ lineRange: [1, 1], anchorText: "Hello", note: "", draft: true }),
+    }).then((r) => r.json() as Promise<Annotation>);
+    expect(created.draft).toBe(true);
+
+    const promoted = await fetch(`${base}/api/annotations/${created.id}${q}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note: "done", draft: false }),
+    }).then((r) => r.json() as Promise<Annotation>);
+    expect(promoted.note).toBe("done");
+    expect("draft" in promoted).toBe(false);
+
+    await fetch(`${base}/api/annotations/${created.id}${q}`, { method: "DELETE" });
+  });
 });
 
 describe("markdown predicate", () => {
