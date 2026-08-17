@@ -570,6 +570,8 @@ function App() {
     if (!draftRef.current) setPending(null);
     setOpenAnn(null);
   });
+  const annotationsRef = useRef(annotations);
+  annotationsRef.current = annotations;
 
   const saved = useMemo(() => annotations.filter((a) => !a.draft), [annotations]);
   // The active draft's visuals are the pending highlight/box, not the draft ones.
@@ -617,7 +619,11 @@ function App() {
     setPending(null);
     if (h)
       h.ops = h.ops.then(() => {
-        if (h.id) return deleteAnnotation(h.id).then(refreshAnnotations);
+        if (!h.id) return;
+        // Never delete an id another tab promoted while our form was open.
+        const live = annotationsRef.current.find((x) => x.id === h.id);
+        if (live && !live.draft) return;
+        return deleteAnnotation(h.id).then(refreshAnnotations);
       });
   };
 
@@ -729,12 +735,21 @@ function App() {
     const h = draftRef.current;
     const p = pendingRef.current;
     if (!h || !p) return;
+    const live = h.id ? annotations.find((x) => x.id === h.id) : undefined;
+    // Promoted in another tab: the id is no longer ours to write. Drop the form
+    // without deleting — cancel would destroy the saved annotation.
+    if (live && !live.draft) {
+      draftRef.current = null;
+      setPendingDraftId(null);
+      setPending(null);
+      return;
+    }
     const connected = p.blocks ? p.blocks[0]!.isConnected : p.range.startContainer.isConnected;
     if (connected) return;
     // Create unresolved (or failed): the sidecar can't be consulted yet, so re-derive
     // from the gesture's own fields; save still works via the fallback POST.
     const a = h.id
-      ? annotations.find((x) => x.id === h.id)
+      ? live
       : {
           anchorText: p.anchorText,
           lineRange: p.lineRange,
