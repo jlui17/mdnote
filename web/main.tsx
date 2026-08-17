@@ -622,12 +622,17 @@ function App() {
     setFormSession((s) => s + 1);
   };
 
-  const cancelPending = () => {
-    const h = draftRef.current;
+  /** Drops the form's local draft state in lockstep; never touches the server. */
+  const clearActiveDraft = () => {
     draftRef.current = null;
     draftNoteRef.current.dirty = false;
     setPendingDraftId(null);
     setPending(null);
+  };
+
+  const cancelPending = () => {
+    const h = draftRef.current;
+    clearActiveDraft();
     if (h)
       h.ops = h.ops.then(() => {
         if (!h.id) return;
@@ -728,10 +733,7 @@ function App() {
   const submitPending = (note: string) => {
     const h = draftRef.current;
     const p = pending;
-    draftRef.current = null;
-    draftNoteRef.current.dirty = false;
-    setPendingDraftId(null);
-    setPending(null);
+    clearActiveDraft();
     window.getSelection()?.removeAllRanges();
     if (!h || !p) return;
     h.ops = h.ops.then(async () => {
@@ -776,9 +778,7 @@ function App() {
     // Promoted in another tab: the id is no longer ours to write. Drop the form
     // without deleting — cancel would destroy the saved annotation.
     if (live && !live.draft) {
-      draftRef.current = null;
-      setPendingDraftId(null);
-      setPending(null);
+      clearActiveDraft();
       return;
     }
     const connected = p.blocks ? p.blocks[0]!.isConnected : p.range.startContainer.isConnected;
@@ -799,9 +799,7 @@ function App() {
     }
     // Draft deleted underneath us, or its text no longer matches the new DOM:
     // drop the floating form. A persisted draft survives server-side either way.
-    draftRef.current = null;
-    setPendingDraftId(null);
-    setPending(null);
+    clearActiveDraft();
   }, [annotations, doc?.html]);
 
   /** True (and pops the pinned popover, or resumes the draft) when `blocks` already
