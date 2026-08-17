@@ -116,6 +116,7 @@ interface Annotation {
   createdAt: string;
   status: AnnotationStatus;
   block?: true;                       // set when the note targets a whole block, not a text span
+  draft?: true;                       // an in-progress note whose form was interrupted; hidden from `comments`
 }
 ```
 
