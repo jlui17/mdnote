@@ -29,6 +29,7 @@ import {
   type Box,
   type SelectionAnchor,
 } from "./anchor-dom.ts";
+import { computeDepths, computeHeights } from "./depth.ts";
 import { HelpDialog } from "./help.tsx";
 import { createHoverController, type HoverController } from "./hover.ts";
 
@@ -49,6 +50,25 @@ function setHighlight(name: string, ranges: Range[], priority = 0): void {
     h.priority = priority;
     highlights.set(name, h);
   } else highlights.delete(name);
+}
+
+/* Highlight priorities: open depths occupy 0..OPEN_DEPTH_MAX so inner paints over
+ * outer; the layers above are ordered so staleness shows over open fills, a draft
+ * over those, an in-progress selection over a draft, and the focus flash over all. */
+const HUE_COUNT = 3; // depth hues in style.css: --hl-open, --hl-open-1, --hl-open-2
+const OPEN_DEPTH_MAX = HUE_COUNT * 3 - 1; // names d0..d8: three full hue cycles
+const STALE_PRIORITY = 40;
+const DRAFT_PRIORITY = 50;
+const PENDING_PRIORITY = 60;
+const FOCUS_PRIORITY = 100;
+
+const openDepthName = (depth: number) => `mdnote-open-d${Math.min(depth, OPEN_DEPTH_MAX)}`;
+
+/** Proper containment: `outer` covers all of `inner` and is not the identical range. */
+function containsRange(outer: Range, inner: Range): boolean {
+  const s = outer.compareBoundaryPoints(Range.START_TO_START, inner);
+  const e = outer.compareBoundaryPoints(Range.END_TO_END, inner);
+  return s <= 0 && e >= 0 && (s < 0 || e > 0);
 }
 
 const FILE = decodeURIComponent(window.location.pathname);
@@ -184,9 +204,14 @@ function blockBox(el: Element): { left: number; top: number; width: number; heig
 
 const HALO_X = 8;
 const HALO_Y = 4;
+/* Extra halo per level of boxes a box contains, so a container visibly encompasses
+ * what it wraps instead of sharing edges with it; big enough to read at a glance,
+ * small enough that two levels don't push a box into the neighboring block. */
+const NEST_PAD = 6;
 
-/** The union of `els`' block boxes in page coordinates, grown by the halo every block box wears. */
-function paddedBox(els: Element[]): Box {
+/** The union of `els`' block boxes in page coordinates, grown by the halo every block
+ *  box wears plus any extra a containing box adds per nested level. */
+function paddedBox(els: Element[], extraPad = 0): Box {
   let left = Infinity;
   let top = Infinity;
   let right = -Infinity;
@@ -199,22 +224,44 @@ function paddedBox(els: Element[]): Box {
     bottom = Math.max(bottom, r.top + r.height);
   }
   return {
-    left: left + window.scrollX - HALO_X,
-    top: top + window.scrollY - HALO_Y,
-    width: right - left + 2 * HALO_X,
-    height: bottom - top + 2 * HALO_Y,
+    left: left + window.scrollX - HALO_X - extraPad,
+    top: top + window.scrollY - HALO_Y - extraPad,
+    width: right - left + 2 * (HALO_X + extraPad),
+    height: bottom - top + 2 * (HALO_Y + extraPad),
   };
 }
 
-/** Boxes are `pointer-events: none` chrome, so click and hover both resolve them by coordinate. */
+/** Boxes are `pointer-events: none` chrome, so click and hover both resolve them by
+ *  coordinate; among nested hits the smallest box wins, matching the innermost-wins
+ *  rule text ranges follow. Area ties go to the later (topmost-painted) box, so an
+ *  exact-rect pair resolves to what the user actually sees. */
 function boxAt<T extends { box: Box }>(boxes: T[], pageX: number, pageY: number): T | undefined {
-  return boxes.find(
-    ({ box }) =>
-      pageX >= box.left &&
-      pageX <= box.left + box.width &&
-      pageY >= box.top &&
-      pageY <= box.top + box.height,
-  );
+  let best: T | undefined;
+  for (const b of boxes) {
+    const { box } = b;
+    if (
+      pageX < box.left ||
+      pageX > box.left + box.width ||
+      pageY < box.top ||
+      pageY > box.top + box.height
+    )
+      continue;
+    if (!best || box.width * box.height <= best.box.width * best.box.height) best = b;
+  }
+  return best;
+}
+
+/** The deepest saved text annotation whose range contains the caret. */
+function innermostTextAt(
+  texts: TextLayout[],
+  caret: { node: Node; offset: number },
+): TextLayout | undefined {
+  let best: TextLayout | undefined;
+  for (const t of texts) {
+    if (!t.range.isPointInRange(caret.node, caret.offset)) continue;
+    if (!best || t.depth > best.depth) best = t;
+  }
+  return best;
 }
 
 function viewportRect(b: Box): DOMRect {
@@ -277,33 +324,101 @@ function useDocSync(onReload: () => void) {
   return { doc, annotations, refreshAnnotations };
 }
 
-function useHighlights(
+type TextLayout = { id: string; range: Range; status: AnnotationStatus; depth: number };
+type BlockLayout = {
+  id: string;
+  els: Element[];
+  status: AnnotationStatus;
+  depth: number;
+  /** Levels of boxes properly inside this one; inflates the halo so a container
+   *  visibly encompasses the boxes it wraps. */
+  nestHeight: number;
+};
+
+/** Resolves every saved annotation against the current DOM once and derives each
+ *  one's nesting depth from range containment — unified across kinds, so a block
+ *  annotation deepens the text annotations inside it just like a wider text one. */
+function useAnnotationLayout(
   docRef: RefObject<HTMLDivElement>,
   saved: Annotation[],
+  docHtml: string | undefined,
+) {
+  const [layout, setLayout] = useState<{ texts: TextLayout[]; blocks: BlockLayout[] }>({
+    texts: [],
+    blocks: [],
+  });
+
+  useLayoutEffect(() => {
+    const container = docRef.current;
+    const resolved: { a: Annotation; range: Range; els: Element[] | null }[] = [];
+    for (const a of container ? saved : []) {
+      if (!a.anchorText) continue;
+      if (a.block) {
+        const els = findBlocks(container!, a.anchorText, a.lineRange);
+        if (!els) continue;
+        const range = document.createRange();
+        range.setStartBefore(els[0]!);
+        range.setEndAfter(els[els.length - 1]!);
+        resolved.push({ a, range, els });
+      } else {
+        const range = findRange(container!, a.anchorText, a.lineRange);
+        if (range) resolved.push({ a, range, els: null });
+      }
+    }
+    const depths = computeDepths(resolved, (outer, inner) => containsRange(outer.range, inner.range));
+    const blockItems = resolved.filter((r) => r.els);
+    const heights = computeHeights(blockItems, (outer, inner) =>
+      containsRange(outer.range, inner.range),
+    );
+    setLayout({
+      texts: resolved
+        .filter((r) => !r.els)
+        .map((r) => ({ id: r.a.id, range: r.range, status: r.a.status, depth: depths.get(r)! })),
+      blocks: blockItems.map((r) => ({
+        id: r.a.id,
+        els: r.els!,
+        status: r.a.status,
+        depth: depths.get(r)!,
+        nestHeight: heights.get(r)!,
+      })),
+    });
+  }, [saved, docHtml]);
+
+  return layout;
+}
+
+function useHighlights(
+  texts: TextLayout[],
+  docRef: RefObject<HTMLDivElement>,
   drafts: Annotation[],
   docHtml: string | undefined,
   pending: SelectionAnchor | null,
   focus: { id: string; tick: number } | null,
 ) {
-  const rangesRef = useRef<{ id: string; range: Range }[]>([]);
+  const rangesRef = useRef<TextLayout[]>([]);
   const draftRangesRef = useRef<{ id: string; range: Range }[]>([]);
 
   useEffect(() => {
-    const container = docRef.current;
-    rangesRef.current = [];
-    if (!container || !highlights || !HighlightCtor) return;
-    const open: Range[] = [];
+    rangesRef.current = texts;
+    if (!highlights || !HighlightCtor) return;
+    const open = new Map<string, Range[]>();
     const stale: Range[] = [];
-    for (const a of saved) {
-      if (!a.anchorText || a.block) continue;
-      const range = findRange(container, a.anchorText, a.lineRange);
-      if (!range) continue;
-      rangesRef.current.push({ id: a.id, range });
-      (a.status === "stale" ? stale : open).push(range);
+    for (const t of texts) {
+      if (t.status === "stale") {
+        stale.push(t.range);
+        continue;
+      }
+      const name = openDepthName(t.depth);
+      const ranges = open.get(name) ?? [];
+      ranges.push(t.range);
+      open.set(name, ranges);
     }
-    setHighlight("mdnote-open", open);
-    setHighlight("mdnote-stale", stale);
-  }, [saved, docHtml]);
+    for (let d = 0; d <= OPEN_DEPTH_MAX; d++) {
+      const name = openDepthName(d);
+      setHighlight(name, open.get(name) ?? [], d);
+    }
+    setHighlight("mdnote-stale", stale, STALE_PRIORITY);
+  }, [texts]);
 
   useEffect(() => {
     const container = docRef.current;
@@ -319,11 +434,15 @@ function useHighlights(
       draftRangesRef.current.push({ id: a.id, range });
       ranges.push(range);
     }
-    setHighlight("mdnote-draft", ranges);
+    setHighlight("mdnote-draft", ranges, DRAFT_PRIORITY);
   }, [drafts, docHtml]);
 
   useEffect(() => {
-    setHighlight("mdnote-pending", pending && !pending.blocks ? [pending.range] : []);
+    setHighlight(
+      "mdnote-pending",
+      pending && !pending.blocks ? [pending.range] : [],
+      PENDING_PRIORITY,
+    );
     return () => setHighlight("mdnote-pending", []);
   }, [pending]);
 
@@ -331,7 +450,7 @@ function useHighlights(
     if (!focus) return;
     const range = rangesRef.current.find((r) => r.id === focus.id)?.range;
     if (!range) return;
-    setHighlight("mdnote-focus", [range], 1);
+    setHighlight("mdnote-focus", [range], FOCUS_PRIORITY);
     const t = window.setTimeout(() => setHighlight("mdnote-focus", []), 1200);
     return () => {
       clearTimeout(t);
@@ -347,14 +466,22 @@ function useHighlights(
  *  layout can have moved (doc reload, resize). */
 function useBlockBoxes(
   docRef: RefObject<HTMLDivElement>,
-  annotations: Annotation[],
+  blocks: BlockLayout[],
+  drafts: Annotation[],
   docHtml: string | undefined,
 ) {
   const blocksRef = useRef<
-    { id: string; els: Element[]; status: AnnotationStatus; draft: boolean }[]
+    {
+      id: string;
+      els: Element[];
+      status: AnnotationStatus;
+      draft: boolean;
+      depth: number;
+      nestHeight: number;
+    }[]
   >([]);
   const [boxes, setBoxes] = useState<
-    { id: string; status: AnnotationStatus; draft: boolean; box: Box }[]
+    { id: string; status: AnnotationStatus; draft: boolean; depth: number; box: Box }[]
   >([]);
 
   const measure = () => {
@@ -362,7 +489,8 @@ function useBlockBoxes(
       id: b.id,
       status: b.status,
       draft: b.draft,
-      box: paddedBox(b.els),
+      depth: b.depth,
+      box: paddedBox(b.els, NEST_PAD * b.nestHeight),
     }));
     separateBoxes(
       next.map((n) => n.box),
@@ -374,15 +502,26 @@ function useBlockBoxes(
 
   useLayoutEffect(() => {
     const container = docRef.current;
-    blocksRef.current = [];
-    for (const a of container ? annotations : []) {
+    blocksRef.current = blocks.map((b) => ({ ...b, draft: false }));
+    for (const a of container ? drafts : []) {
       if (!a.block || !a.anchorText) continue;
-      if (a.draft && !a.lineRange) continue; // no lineRange means no resume anchor
+      if (!a.lineRange) continue; // no lineRange means no resume anchor
       const els = findBlocks(container!, a.anchorText, a.lineRange);
-      if (els) blocksRef.current.push({ id: a.id, els, status: a.status, draft: a.draft === true });
+      if (els)
+        blocksRef.current.push({
+          id: a.id,
+          els,
+          status: a.status,
+          draft: true,
+          depth: 0,
+          nestHeight: 0,
+        });
     }
+    // Deeper boxes render later so a nested box paints over its container; drafts
+    // render after all saved boxes so a resume handle is never buried under one.
+    blocksRef.current.sort((a, b) => Number(a.draft) - Number(b.draft) || a.depth - b.depth);
     measure();
-  }, [annotations, docHtml]);
+  }, [blocks, drafts, docHtml]);
 
   useEffect(() => {
     window.addEventListener("resize", measure);
@@ -468,7 +607,7 @@ type OpenAnn = { id: string; rect: DOMRect; editing: boolean; pinned: boolean };
 
 /** Resting on an annotation opens its popover; the pointer may cross the gap into the popover. */
 function useHoverPreview(args: {
-  rangesRef: RefObject<{ id: string; range: Range }[]>;
+  rangesRef: RefObject<TextLayout[]>;
   boxesRef: RefObject<{ id: string; box: Box; draft: boolean }[]>;
   annPopoverRef: RefObject<HTMLDivElement>;
   pinnedRef: { current: boolean };
@@ -496,8 +635,7 @@ function useHoverPreview(args: {
       if (args.annPopoverRef.current?.contains(at.target as Node)) return ctl.keepOpen();
       if (args.pinnedRef.current) return ctl.cancel();
       const caret = caretAt(at.x, at.y);
-      const hit =
-        caret && args.rangesRef.current?.find((r) => r.range.isPointInRange(caret.node, caret.offset));
+      const hit = caret && innermostTextAt(args.rangesRef.current ?? [], caret);
       if (hit) return ctl.enter({ id: hit.id, rect: hit.range.getBoundingClientRect() });
       // Drafts have no note to preview; hover passes through, click resumes the form.
       const inBox = boxAt(
@@ -584,14 +722,10 @@ function App() {
     () => annotations.filter((a) => a.draft && a.id !== pendingDraftId),
     [annotations, pendingDraftId],
   );
-  const boxAnnotations = useMemo(
-    () => annotations.filter((a) => a.id !== pendingDraftId),
-    [annotations, pendingDraftId],
-  );
-
+  const layout = useAnnotationLayout(docRef, saved, doc?.html);
   const { rangesRef, draftRangesRef } = useHighlights(
+    layout.texts,
     docRef,
-    saved,
     inactiveDrafts,
     doc?.html,
     pending,
@@ -599,7 +733,8 @@ function App() {
   );
   const { boxes: blockBoxes, blocksRef: blockAnnotationsRef } = useBlockBoxes(
     docRef,
-    boxAnnotations,
+    layout.blocks,
+    inactiveDrafts,
     doc?.html,
   );
   const pinnedRef = useRef(false);
@@ -927,7 +1062,7 @@ function App() {
     if (target.closest("a")) return;
     const caret = caretAt(e.clientX, e.clientY);
     if (caret) {
-      const hit = rangesRef.current.find((r) => r.range.isPointInRange(caret.node, caret.offset));
+      const hit = innermostTextAt(rangesRef.current, caret);
       if (hit) {
         focusAnnotation(hit.id);
         setOpenAnn({
@@ -985,10 +1120,16 @@ function App() {
           }}
         />
       )}
-      {blockBoxes.map(({ id, status, draft, box }) => (
+      {blockBoxes.map(({ id, status, draft, depth, box }) => (
         <div
           key={focus?.id === id ? `${id}:${focus.tick}` : id}
-          class={`block-box ${draft ? "draft" : status}${focus?.id === id ? " flash" : ""}`}
+          class={`block-box ${
+            draft
+              ? "draft"
+              : status === "open"
+                ? `open d${Math.min(depth, OPEN_DEPTH_MAX) % HUE_COUNT}`
+                : status
+          }${focus?.id === id ? " flash" : ""}`}
           style={boxStyle(box)}
         />
       ))}

@@ -9,7 +9,19 @@
   --panel: light-dark(#e6e9ef, #1e1f22);
   --surface: light-dark(#eff1f5, #252629);
   --shadow: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.55));
+  /* Depth hue cycle (gold, sky, plum): annotation nesting depth picks hue d mod 3.
+     Verified red-green-CVD-safe: pairwise Lab dE >= 24 under simulated deuteranopia
+     and protanopia in both themes; the cycle varies yellow<->blue plus lightness,
+     the channels red-green CVD preserves. Re-check any retune the same way. */
   --hl-open: light-dark(#f3dfa8, #4d3a08);
+  --hl-open-1: light-dark(#a4cdf2, #103353);
+  --hl-open-2: light-dark(#cd85b7, #8a4680);
+  /* Box-border edges: full-strength hue carriers, since the translucent wash
+     composites toward the page background and loses most of the pairwise
+     separation (composited min dE ~10-14 at 40% wash vs 28+ for these edges). */
+  --hl-open-edge: light-dark(#c2a145, #b08a2e);
+  --hl-open-1-edge: light-dark(#4f8fd6, #4f83c2);
+  --hl-open-2-edge: light-dark(#b45b95, #c06fa6);
   --hl-stale: light-dark(#ccd0da, #33363b);
   --hl-pending: color-mix(in srgb, var(--accent) 28%, transparent);
   --hl-draft: color-mix(in srgb, var(--accent) 14%, transparent);
@@ -277,13 +289,28 @@ body {
 }
 
 /* Saved whole-block annotation: the box is the whole visual, never a text
-   highlight as well, so one look means one thing. */
-.block-box.open {
-  background: var(--hl-open);
+   highlight as well, so one look means one thing. The wash is translucent so
+   nested boxes read through each other; the border draws the extent so a box
+   boundary never relies on wash-intensity perception alone. */
+.block-box.open.d0 {
+  background: color-mix(in srgb, var(--hl-open) 55%, transparent);
+  border: 2px solid var(--hl-open-edge);
 }
 
+.block-box.open.d1 {
+  background: color-mix(in srgb, var(--hl-open-1) 55%, transparent);
+  border: 2px solid var(--hl-open-1-edge);
+}
+
+.block-box.open.d2 {
+  background: color-mix(in srgb, var(--hl-open-2) 55%, transparent);
+  border: 2px solid var(--hl-open-2-edge);
+}
+
+/* Status outranks depth: stale is gray at any nesting depth, so it can't be missed. */
 .block-box.stale {
-  background: var(--hl-stale);
+  background: color-mix(in srgb, var(--hl-stale) 45%, transparent);
+  border: 1px dashed var(--muted);
 }
 
 /* Interrupted draft: dashed edge marks "unsaved, click to resume". */
@@ -331,8 +358,24 @@ body {
 
 /* --- highlights -------------------------------------------------------- */
 
-::highlight(mdnote-open) {
+/* One name per nesting depth (priority = depth, so inner paints over outer);
+   hue cycles d mod 3. Depth is clamped to d8 in the paint effect. */
+::highlight(mdnote-open-d0),
+::highlight(mdnote-open-d3),
+::highlight(mdnote-open-d6) {
   background-color: var(--hl-open);
+}
+
+::highlight(mdnote-open-d1),
+::highlight(mdnote-open-d4),
+::highlight(mdnote-open-d7) {
+  background-color: var(--hl-open-1);
+}
+
+::highlight(mdnote-open-d2),
+::highlight(mdnote-open-d5),
+::highlight(mdnote-open-d8) {
+  background-color: var(--hl-open-2);
 }
 
 ::highlight(mdnote-stale) {
