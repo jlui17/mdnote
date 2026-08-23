@@ -32,13 +32,19 @@ export interface Annotation {
    *  block box instead of a text highlight. Absent on text-selection annotations. */
   block?: true;
   /** An in-progress note whose form was interrupted (blur, reload, tab close).
-   *  Hidden from the sidebar, `comments`, and the review prompt; cleared on save. */
+   *  Hidden from the sidebar, `comments`, and submit envelopes; cleared on save. */
   draft?: true;
+  /** Review round the annotation was first delivered in (submit stamps it);
+   *  absent until delivered, then never restamped. */
+  round?: number;
 }
 
 export interface Sidecar {
   version: 1;
   annotations: Annotation[];
+  /** Highest review round ever submitted for this file. Lives outside the
+   *  annotations so clearing them can't reset round numbering. */
+  lastRound?: number;
 }
 
 /** Body of PATCH /annotations/:id. `draft: false` promotes a draft to a saved annotation. */
@@ -54,6 +60,13 @@ export interface NewAnnotation {
   note: string;
   block?: true;
   draft?: true;
+}
+
+/** What `mdnote wait` prints on submit. Empty annotations = approved as-is. */
+export interface ReviewEnvelope {
+  path: string;
+  submittedAt: string;
+  annotations: Annotation[];
 }
 
 export interface DocResponse {

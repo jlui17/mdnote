@@ -36,17 +36,19 @@ test("formatKeybinding renders per platform", () => {
   expect(formatKeybinding(kb, true)).toBe("⌘⇧C");
   expect(formatKeybinding(kb, false)).toBe("Ctrl+Shift+C");
   expect(formatKeybinding(parseKeybinding("alt+k"), true)).toBe("⌥K");
+  expect(formatKeybinding(parseKeybinding("mod+enter"), true)).toBe("⌘↩");
+  expect(formatKeybinding(parseKeybinding("mod+enter"), false)).toBe("Ctrl+↩");
 });
 
 test("bindingFor reads the resolved map, defaulting to the catalog", () => {
-  expect(bindingFor("copy-prompt")).toEqual(parseKeybinding("mod+shift+c"));
+  expect(bindingFor("annotate-block")).toEqual(parseKeybinding("c"));
   expect(bindingFor("toggle-theme")).toBeNull();
   expect(
-    bindingFor("copy-prompt", {
-      "copy-prompt": "mod+p",
+    bindingFor("annotate-block", {
+      "submit-review": "mod+enter",
       "copy-markdown": null,
       "toggle-theme": null,
-      "annotate-block": "c",
+      "annotate-block": "mod+p",
       "annotate-document": "shift+c",
       "edit-annotation": "e",
       "delete-annotation": "shift+d",
@@ -54,11 +56,11 @@ test("bindingFor reads the resolved map, defaulting to the catalog", () => {
     }),
   ).toEqual(parseKeybinding("mod+p"));
   expect(
-    bindingFor("copy-prompt", {
-      "copy-prompt": null,
+    bindingFor("annotate-block", {
+      "submit-review": "mod+enter",
       "copy-markdown": null,
       "toggle-theme": "mod+t",
-      "annotate-block": "c",
+      "annotate-block": null,
       "annotate-document": "shift+c",
       "edit-annotation": "e",
       "delete-annotation": "shift+d",

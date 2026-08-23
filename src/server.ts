@@ -5,7 +5,14 @@ import { locate, reanchor } from "./anchor.ts";
 import { loadConfig } from "./config.ts";
 import { loadRegistry, saveRegistry } from "./registry.ts";
 import { readSidecar, sidecarPath, writeSidecar } from "./store.ts";
-import type { Annotation, AnnotationPatch, DocResponse, NewAnnotation } from "./types.ts";
+import type {
+  Annotation,
+  AnnotationPatch,
+  DocResponse,
+  NewAnnotation,
+  ReviewEnvelope,
+  Sidecar,
+} from "./types.ts";
 
 const WEB_DIR = join(import.meta.dir, "..", "web");
 
@@ -82,6 +89,8 @@ function servable(file: string): boolean {
 
 interface FileState {
   clients: Set<ReadableStreamDefaultController<Uint8Array>>;
+  /** Pending `mdnote wait` streams, resolved (JSON envelope + close) by /submit. */
+  waiters: Set<ReadableStreamDefaultController<Uint8Array>>;
   timer: ReturnType<typeof setTimeout> | null;
   touchedAt: number;
 }
@@ -128,12 +137,12 @@ export async function startServer(opts: {
   const encoder = new TextEncoder();
 
   for (const [file, touchedAt] of loadRegistry())
-    files.set(file, { clients: new Set(), timer: null, touchedAt });
+    files.set(file, { clients: new Set(), waiters: new Set(), timer: null, touchedAt });
 
   function register(file: string): FileState {
     let state = files.get(file);
     if (!state) {
-      state = { clients: new Set(), timer: null, touchedAt: 0 };
+      state = { clients: new Set(), waiters: new Set(), timer: null, touchedAt: 0 };
       files.set(file, state);
     }
     touch(state);
@@ -178,7 +187,7 @@ export async function startServer(opts: {
     const sidecar = readSidecar(file);
     const next = reanchor(source, sidecar.annotations);
     if (JSON.stringify(next) !== JSON.stringify(sidecar.annotations)) {
-      writeSidecar(file, { version: 1, annotations: next });
+      writeSidecar(file, { ...sidecar, annotations: next });
       markSeen(sidecarPath(file));
     }
     broadcast(state);
@@ -232,7 +241,7 @@ export async function startServer(opts: {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = null;
     let connected = 0;
-    for (const state of files.values()) connected += state.clients.size;
+    for (const state of files.values()) connected += state.clients.size + state.waiters.size;
     if (connected === 0) idleTimer = setTimeout(onIdle, idleMs);
   }
 
@@ -240,7 +249,7 @@ export async function startServer(opts: {
   resetIdleClock();
 
   const pingTimer = setInterval(() => {
-    for (const state of files.values())
+    for (const state of files.values()) {
       for (const c of state.clients) {
         try {
           c.enqueue(encoder.encode(": ping\n\n"));
@@ -248,6 +257,15 @@ export async function startServer(opts: {
           state.clients.delete(c);
         }
       }
+      // Wait streams end in one JSON line, so keepalive must be JSON-trimmable.
+      for (const w of state.waiters) {
+        try {
+          w.enqueue(encoder.encode("\n"));
+        } catch {
+          state.waiters.delete(w);
+        }
+      }
+    }
   }, Number(process.env.MDNOTE_PING_MS) || PING_MS);
 
   const server = Bun.serve({
@@ -357,8 +375,8 @@ export async function startServer(opts: {
     state: FileState,
   ): Promise<Response> {
     const readSource = () => Bun.file(file).text();
-    const persist = (annotations: Annotation[]) => {
-      writeSidecar(file, { version: 1, annotations });
+    const persist = (sidecar: Sidecar) => {
+      writeSidecar(file, sidecar);
       markSeen(sidecarPath(file));
       broadcast(state, "annotations");
     };
@@ -370,7 +388,11 @@ export async function startServer(opts: {
     }
 
     if (path === "/annotations") {
-      if (req.method === "GET") return json({ annotations: readSidecar(file).annotations });
+      if (req.method === "GET")
+        return json({
+          annotations: readSidecar(file).annotations,
+          reviewPending: state.waiters.size > 0,
+        });
 
       if (req.method === "POST") {
         const body = (await req.json()) as NewAnnotation;
@@ -391,12 +413,14 @@ export async function startServer(opts: {
         };
         const sidecar = readSidecar(file);
         sidecar.annotations.push(created);
-        persist(sidecar.annotations);
+        persist(sidecar);
         return json(created, 201);
       }
 
       if (req.method === "DELETE") {
-        persist([]);
+        const sidecar = readSidecar(file);
+        sidecar.annotations = [];
+        persist(sidecar);
         return new Response(null, { status: 204 });
       }
     }
@@ -411,15 +435,64 @@ export async function startServer(opts: {
         if (!target) return json({ error: "annotation not found" }, 404);
         target.note = body.note;
         if (body.draft === false) delete target.draft;
-        persist(sidecar.annotations);
+        persist(sidecar);
         return json(target);
       }
 
       if (req.method === "DELETE") {
         const sidecar = readSidecar(file);
-        persist(sidecar.annotations.filter((a) => a.id !== id));
+        sidecar.annotations = sidecar.annotations.filter((a) => a.id !== id);
+        persist(sidecar);
         return new Response(null, { status: 204 });
       }
+    }
+
+    if (req.method === "GET" && path === "/wait") {
+      let self: ReadableStreamDefaultController<Uint8Array>;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          self = controller;
+          state.waiters.add(controller);
+          resetIdleClock();
+          broadcast(state, "annotations");
+          // Flush a JSON-trimmable byte so the waiter's fetch sees headers immediately.
+          controller.enqueue(encoder.encode("\n"));
+        },
+        cancel() {
+          state.waiters.delete(self);
+          resetIdleClock();
+          broadcast(state, "annotations");
+        },
+      });
+      return new Response(stream, {
+        headers: { "content-type": "application/json", "cache-control": "no-cache" },
+      });
+    }
+
+    if (req.method === "POST" && path === "/submit") {
+      if (state.waiters.size === 0) return json({ error: "no review pending" }, 409);
+      const sidecar = readSidecar(file);
+      const delivered = sidecar.annotations.filter((a) => !a.draft);
+      // Max over stamped rounds too, for sidecars written before lastRound existed.
+      const round = Math.max(sidecar.lastRound ?? 0, ...delivered.map((a) => a.round ?? 0)) + 1;
+      for (const a of delivered) a.round ??= round;
+      sidecar.lastRound = round;
+      const envelope: ReviewEnvelope = {
+        path: file,
+        submittedAt: new Date().toISOString(),
+        annotations: delivered,
+      };
+      const payload = encoder.encode(JSON.stringify(envelope) + "\n");
+      for (const w of state.waiters) {
+        try {
+          w.enqueue(payload);
+          w.close();
+        } catch {}
+      }
+      state.waiters.clear();
+      resetIdleClock();
+      persist(sidecar);
+      return json({ submitted: delivered.length });
     }
 
     if (req.method === "GET" && path === "/events") {

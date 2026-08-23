@@ -32,7 +32,7 @@ test("missing file yields defaults: dark theme, catalog keybindings", () => {
   const cfg = loadConfig(setup());
   expect(cfg.theme).toBe("dark");
   expect(cfg.keybindings).toEqual({
-    "copy-prompt": "mod+shift+c",
+    "submit-review": "mod+enter",
     "copy-markdown": null,
     "toggle-theme": null,
     "annotate-block": "c",
@@ -49,7 +49,7 @@ test("settings override defaults per-key", () => {
   );
   expect(cfg.theme).toBe("light");
   expect(cfg.keybindings["toggle-theme"]).toBe("mod+shift+t");
-  expect(cfg.keybindings["copy-prompt"]).toBe("mod+shift+c");
+  expect(cfg.keybindings["annotate-block"]).toBe("c");
 });
 
 test("lineNumbers defaults off, parses booleans, drops anything else", () => {
@@ -62,8 +62,8 @@ test("lineNumbers defaults off, parses booleans, drops anything else", () => {
 });
 
 test("null unbinds a default keybinding", () => {
-  const cfg = loadConfig(setup(JSON.stringify({ keybindings: { "copy-prompt": null } })));
-  expect(cfg.keybindings["copy-prompt"]).toBeNull();
+  const cfg = loadConfig(setup(JSON.stringify({ keybindings: { "annotate-block": null } })));
+  expect(cfg.keybindings["annotate-block"]).toBeNull();
 });
 
 test("invalid entries warn and fall back per-key", () => {
@@ -71,13 +71,13 @@ test("invalid entries warn and fall back per-key", () => {
     setup(
       JSON.stringify({
         theme: "solarized",
-        keybindings: { "copy-prompt": "hyper+c", "no-such-action": "mod+x", "toggle-theme": 7 },
+        keybindings: { "annotate-block": "hyper+c", "no-such-action": "mod+x", "toggle-theme": 7 },
       }),
     ),
   );
   expect(cfg.theme).toBe("dark");
   expect(cfg.keybindings).toEqual({
-    "copy-prompt": "mod+shift+c",
+    "submit-review": "mod+enter",
     "copy-markdown": null,
     "toggle-theme": null,
     "annotate-block": "c",

@@ -26,8 +26,6 @@ The browser opens on the rendered doc. One background server per machine serves 
 
 The page opens in dark mode (or whatever `theme` you set in [Settings](#settings)); the ◐/☀/☾ button in the sidebar switches it for the session.
 
-When you're done annotating, click **Copy review prompt** in the sidebar (or hit ⌘⇧C / Ctrl+Shift+C) to copy a ready-made prompt for your agent: paste it into the session and it walks the agent through reading, applying, and clearing your notes.
-
 Then an agent (or you, in another terminal) pulls what you left:
 
 ```
@@ -55,6 +53,8 @@ $ mdnote clear notes.md --ids 3f1e2b7a-...
 
 The browser page live-reloads on its own. Repeat until `mdnote comments` returns nothing open.
 
+The loop also runs agent-first. Instead of you kicking things off, the agent runs `mdnote wait notes.md`: it opens the page and blocks, and the sidebar shows an agent is waiting with a **Submit** button. Annotate as usual, then click Submit (or hit ⌘↩ / Ctrl+↩) and confirm — the command prints every annotation as JSON and exits, so the agent picks up right where you finished. Submitting with no notes is the "looks good, proceed" signal; the confirmation dialog has a "Don't ask again" checkbox that skips it for the session.
+
 To have Claude Code run this loop itself when you say things like "I left notes", install the skill:
 
 ```
@@ -71,7 +71,7 @@ An optional `~/.config/mdnote/settings.json` (honors `$XDG_CONFIG_HOME`) overrid
   "theme": "light",
   "lineNumbers": true,
   "keybindings": {
-    "copy-prompt": "mod+p",
+    "annotate-block": "mod+p",
     "toggle-theme": "mod+shift+t"
   }
 }
@@ -79,7 +79,7 @@ An optional `~/.config/mdnote/settings.json` (honors `$XDG_CONFIG_HOME`) overrid
 
 - **`theme`** — `"dark"` (the default), `"light"`, or `"system"` (follow the OS preference).
 - **`lineNumbers`** — `true` shows source line numbers in the preview (default `false`): each top-level block's starting line in a left gutter, and a per-line number column inside code blocks. Prose can't be numbered per visual line — a soft-wrapped paragraph is one source range — so blocks show where they start.
-- **`keybindings`** — action → shortcut, merged over the defaults; `null` unbinds a default. A spec is `mod`/`shift`/`alt` modifiers plus a key, joined by `+` (`mod` is ⌘ on Mac, Ctrl elsewhere). Actions: `copy-prompt` (default `mod+shift+c`), `annotate-block` (default `c`), `annotate-document` (default `shift+c`), `edit-annotation` (default `e`), `delete-annotation` (default `shift+d`), `show-help` (default `shift+?`), and `copy-markdown` and `toggle-theme` (unbound by default).
+- **`keybindings`** — action → shortcut, merged over the defaults; `null` unbinds a default. A spec is `mod`/`shift`/`alt` modifiers plus a key, joined by `+` (`mod` is ⌘ on Mac, Ctrl elsewhere). Actions: `annotate-block` (default `c`), `annotate-document` (default `shift+c`), `edit-annotation` (default `e`), `delete-annotation` (default `shift+d`), `submit-review` (default `mod+enter`), `show-help` (default `shift+?`), and `copy-markdown` and `toggle-theme` (unbound by default).
 
 An invalid entry warns in the server log (`~/.local/state/mdnote/server.log`, truncated each time the server starts) and falls back to the default for that key. Edits apply on page reload; no server restart needed.
 
@@ -98,12 +98,13 @@ The bind flags take effect on a cold start, so `mdnote stop` first if a loopback
 - **`mdnote <file.md> [--host H] [--port P]`** — opens the file in the browser (loopback only) and exits, starting the background server first if none is running. Defaults to `127.0.0.1:4820`; the document lives at the file's absolute path on that port. `--host`/`--port` apply to a cold start; passing either with values that disagree with the running server is an error telling you to `mdnote stop` first.
 - **`mdnote stop`** — stops the background server. It also stops itself after 5 minutes with no open tab, and the next `mdnote <file.md>` cold-starts it again.
 - **`mdnote list`** — lists every file open on the running server with its URL; says so and exits 0 if no server is running. The list survives restarts and reboots: paths persist in the state dir, and a cold-started server re-lists the ones whose files still exist and that you've touched in the last two weeks.
+- **`mdnote wait <file.md> [--host H] [--port P]`** — opens the file like `mdnote <file.md>` (URL on stderr), then blocks until Submit is clicked in the browser. Stdout is exactly one JSON envelope, `{path, submittedAt, annotations}` with drafts excluded; empty `annotations` means approved as-is. No built-in timeout — kill the process to abandon the wait; a pending wait keeps the server alive like an open tab.
 - **`mdnote comments <file.md> [--json]`** — lists annotations (unsaved drafts excluded). `--json` prints `{file, annotations}`; without it, a human-readable list.
 - **`mdnote clear <file.md> [--ids ID[,ID...]]`** — clears the listed annotations by `--ids` (comma-separated), or all annotations if omitted.
 
 ## Annotation schema
 
-Annotations persist to `<file>.mdnote.json` next to the reviewed file.
+Annotations persist to `<file>.mdnote.json` next to the reviewed file. Alongside them the sidecar keeps `lastRound`, the highest review round submitted so far, so clearing annotations never resets round numbering.
 
 ```ts
 type AnnotationStatus = "open" | "stale";
@@ -117,6 +118,7 @@ interface Annotation {
   status: AnnotationStatus;
   block?: true;                       // set when the note targets a whole block, not a text span
   draft?: true;                       // an in-progress note whose form was interrupted; hidden from `comments`
+  round?: number;                     // review round the note was first delivered in via Submit; absent until then
 }
 ```
 

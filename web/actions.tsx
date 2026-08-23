@@ -31,16 +31,15 @@ export function matchesEvent(kb: Keybinding, e: KeyboardEvent, mac = isMac): boo
 }
 
 export function formatKeybinding(kb: Keybinding, mac = isMac): string {
+  const key = kb.key === "enter" ? "↩" : kb.key.toUpperCase();
   if (mac) {
-    return (
-      (kb.mod ? "⌘" : "") + (kb.alt ? "⌥" : "") + (kb.shift ? "⇧" : "") + kb.key.toUpperCase()
-    );
+    return (kb.mod ? "⌘" : "") + (kb.alt ? "⌥" : "") + (kb.shift ? "⇧" : "") + key;
   }
   const parts = [];
   if (kb.mod) parts.push("Ctrl");
   if (kb.alt) parts.push("Alt");
   if (kb.shift) parts.push("Shift");
-  parts.push(kb.key.toUpperCase());
+  parts.push(key);
   return parts.join("+");
 }
 

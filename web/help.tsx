@@ -3,7 +3,7 @@ import { ACTIONS, bindingFor, formatKeybinding, isMac, type ActionId } from "./a
 
 /**
  * The keybinding cheatsheet: only keybound actions, with a description where the behavior
- * is non-obvious (targeting rules, what gets copied). Rows resolve through the action
+ * is non-obvious (targeting rules). Rows resolve through the action
  * catalog, so a remap shows the user's keys. The intro line teaches the core mouse gesture;
  * everything else (buttons, hover, click-to-pin) is discoverable in place. A new keybound
  * action belongs in ROWS in the same round.
@@ -22,7 +22,10 @@ const ROWS: { action: ActionId; desc?: string }[] = [
     desc: "Edits the hovered sidebar entry, else the open popover. Also double-click the note.",
   },
   { action: "delete-annotation", desc: "Same target as Edit; ↩ confirms." },
-  { action: "copy-prompt", desc: "Copy a prompt for an agent to address the comments." },
+  {
+    action: "submit-review",
+    desc: "Send annotations to the waiting agent; none sent means approve.",
+  },
 ];
 
 export interface HelpEntry {

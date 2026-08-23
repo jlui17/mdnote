@@ -1,4 +1,4 @@
-import { Fragment, render, type RefObject } from "preact";
+import { Fragment, render, type ComponentChildren, type RefObject } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import type {
   Annotation,
@@ -82,10 +82,10 @@ async function getDoc(): Promise<DocResponse | null> {
   return res.ok ? ((await res.json()) as DocResponse) : null;
 }
 
-async function getAnnotations(): Promise<Annotation[]> {
+async function getAnnotations(): Promise<{ annotations: Annotation[]; reviewPending: boolean }> {
   const res = await fetch(api("/annotations"));
-  if (!res.ok) return [];
-  return ((await res.json()) as { annotations: Annotation[] }).annotations;
+  if (!res.ok) return { annotations: [], reviewPending: false };
+  return (await res.json()) as { annotations: Annotation[]; reviewPending: boolean };
 }
 
 async function sendJson(route: string, method: string, body: unknown): Promise<void> {
@@ -115,18 +115,6 @@ const patchAnnotation = (id: string, body: AnnotationPatch) =>
 
 async function deleteAnnotation(id: string): Promise<void> {
   await fetch(api(`/annotations/${encodeURIComponent(id)}`), { method: "DELETE" });
-}
-
-function agentPrompt(path: string): string {
-  return `I left annotations on ${path} with mdnote. Read them:
-
-  mdnote comments "${path}" --json
-
-Apply each "open" annotation's note to its anchored span (whole document when anchorText is null; lineRange is 1-based inclusive source lines). Then clear what you addressed:
-
-  mdnote clear "${path}" --ids <id>,<id>,...
-
-Leave "stale" annotations alone and flag them to me.`;
 }
 
 async function copyText(text: string): Promise<void> {
@@ -291,10 +279,15 @@ function formatTime(iso: string): string {
 function useDocSync(onReload: () => void) {
   const [doc, setDoc] = useState<DocResponse | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [reviewPending, setReviewPending] = useState(false);
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
 
-  const refreshAnnotations = async () => setAnnotations(await getAnnotations());
+  const refreshAnnotations = async () => {
+    const next = await getAnnotations();
+    setAnnotations(next.annotations);
+    setReviewPending(next.reviewPending);
+  };
 
   useEffect(() => {
     const reload = () => {
@@ -302,7 +295,7 @@ function useDocSync(onReload: () => void) {
       onReloadRef.current();
       void (async () => {
         setDoc(await getDoc());
-        setAnnotations(await getAnnotations());
+        await refreshAnnotations();
         requestAnimationFrame(() => window.scrollTo({ top: y }));
       })();
     };
@@ -321,7 +314,7 @@ function useDocSync(onReload: () => void) {
     return () => events.close();
   }, []);
 
-  return { doc, annotations, refreshAnnotations };
+  return { doc, annotations, refreshAnnotations, reviewPending };
 }
 
 type TextLayout = { id: string; range: Range; status: AnnotationStatus; depth: number };
@@ -708,8 +701,11 @@ function App() {
   const [pendingDraftId, setPendingDraftId] = useState<string | null>(null);
   const [pendingInitial, setPendingInitial] = useState("");
   const [formSession, setFormSession] = useState(0);
+  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
+  // Session-only, like the theme toggle: the server owns durable settings.
+  const [skipSubmitConfirm, setSkipSubmitConfirm] = useState(false);
 
-  const { doc, annotations, refreshAnnotations } = useDocSync(() => {
+  const { doc, annotations, refreshAnnotations, reviewPending } = useDocSync(() => {
     if (!draftRef.current) setPending(null);
     setOpenAnn(null);
   });
@@ -983,19 +979,33 @@ function App() {
     if (!openAnn) hoverRef.current?.cancel();
   }, [openAnn]);
 
-  const copyPrompt = () => {
-    const path = doc?.path;
-    if (!path) return;
-    void copyText(agentPrompt(path)).then(() => showToast("Copied agent prompt"));
-  };
-
   const copyMarkdown = () => {
     const source = doc?.source;
     if (source == null) return;
     void copyText(source).then(() => showToast("Copied markdown"));
   };
 
-  useAction("copy-prompt", copyPrompt);
+  const doSubmitReview = () => {
+    setSubmitConfirmOpen(false);
+    void fetch(api("/submit"), { method: "POST" }).then(
+      (res) => {
+        if (!res.ok) showToast("Submit failed: no agent is waiting");
+      },
+      () => showToast("Submit failed"),
+    );
+  };
+
+  // The waiter can die while the confirm dialog is open; don't let a stale
+  // dialog (or its Enter handler) outlive the review it was confirming.
+  useEffect(() => {
+    if (!reviewPending) setSubmitConfirmOpen(false);
+  }, [reviewPending]);
+
+  useAction("submit-review", () => {
+    if (!reviewPending) return;
+    if (skipSubmitConfirm || submitConfirmOpen) doSubmitReview();
+    else setSubmitConfirmOpen(true);
+  });
   useAction("copy-markdown", copyMarkdown);
   useAction("show-help", () => setHelpOpen((open) => !open));
   useActionDispatcher();
@@ -1144,6 +1154,7 @@ function App() {
       <Sidebar
         path={doc?.path}
         annotations={saved}
+        reviewPending={reviewPending}
         focus={focus}
         onFocus={scrollTo}
         onDelete={setConfirmDeleteId}
@@ -1155,6 +1166,15 @@ function App() {
       />
       {toast && <div class="toast">{toast}</div>}
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
+      {submitConfirmOpen && (
+        <ConfirmSubmitDialog
+          count={saved.length}
+          skip={skipSubmitConfirm}
+          onSkipChange={setSkipSubmitConfirm}
+          onConfirm={doSubmitReview}
+          onCancel={() => setSubmitConfirmOpen(false)}
+        />
+      )}
       {confirmDeleteAnn && (
         <ConfirmDeleteDialog
           note={confirmDeleteAnn.note}
@@ -1228,8 +1248,12 @@ function NoteForm(props: {
           props.onChange?.(value);
         }}
         onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            // The form owns its save key: without this, the global submit-review
+            // binding (also mod+enter) fires on every note save.
+            e.stopPropagation();
             (e.target as HTMLTextAreaElement).form?.requestSubmit();
+          }
           if (e.key === "Escape") props.onCancel();
         }}
       />
@@ -1248,6 +1272,7 @@ function NoteForm(props: {
 function Sidebar(props: {
   path?: string;
   annotations: Annotation[];
+  reviewPending: boolean;
   focus: { id: string; tick: number } | null;
   onFocus: (id: string) => void;
   onDelete: (id: string) => void;
@@ -1404,9 +1429,14 @@ function Sidebar(props: {
         </ul>
       </div>
 
-      <footer class="sb-foot">
-        <ActionButton id="copy-prompt" class="btn-secondary" />
-      </footer>
+      {props.reviewPending && (
+        <footer class="sb-foot">
+          <div class="review-wait">
+            <p class="review-wait-msg">An agent is waiting for your review.</p>
+            <ActionButton id="submit-review" class="btn-primary" label="Submit" />
+          </div>
+        </footer>
+      )}
     </aside>
   );
 }
@@ -1431,9 +1461,14 @@ function usePopoverPosition(ref: { current: HTMLDivElement | null }, rect: DOMRe
   return pos;
 }
 
-function ConfirmDeleteDialog(props: { note: string; onConfirm: () => void; onCancel: () => void }) {
-  // Capture phase so Enter/Escape settle the dialog before the popover's or
-  // help dialog's own key handlers see them.
+function ConfirmDialog(props: {
+  label: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  children: ComponentChildren;
+}) {
+  // Capture phase so Enter/Escape settle the dialog before any other key handler.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Enter" && e.key !== "Escape") return;
@@ -1453,12 +1488,11 @@ function ConfirmDeleteDialog(props: { note: string; onConfirm: () => void; onCan
         if (e.target === e.currentTarget) props.onCancel();
       }}
     >
-      <div class="confirm-panel" role="alertdialog" aria-modal="true" aria-label="Delete annotation">
-        <p>Delete this annotation?</p>
-        {props.note && <p class="confirm-note">{props.note}</p>}
+      <div class="confirm-panel" role="alertdialog" aria-modal="true" aria-label={props.label}>
+        {props.children}
         <div class="row">
           <button type="button" onClick={props.onConfirm}>
-            Delete <kbd>↩</kbd>
+            {props.confirmLabel} <kbd>↩</kbd>
           </button>
           <button type="button" onClick={props.onCancel}>
             Cancel <kbd>Esc</kbd>
@@ -1466,6 +1500,41 @@ function ConfirmDeleteDialog(props: { note: string; onConfirm: () => void; onCan
         </div>
       </div>
     </div>
+  );
+}
+
+function ConfirmDeleteDialog(props: { note: string; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <ConfirmDialog label="Delete annotation" confirmLabel="Delete" onConfirm={props.onConfirm} onCancel={props.onCancel}>
+      <p>Delete this annotation?</p>
+      {props.note && <p class="confirm-note">{props.note}</p>}
+    </ConfirmDialog>
+  );
+}
+
+function ConfirmSubmitDialog(props: {
+  count: number;
+  skip: boolean;
+  onSkipChange: (skip: boolean) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <ConfirmDialog label="Submit review" confirmLabel="Submit" onConfirm={props.onConfirm} onCancel={props.onCancel}>
+      <p>
+        {props.count === 0
+          ? "Submit with no notes? The agent reads that as approval."
+          : `Submit ${props.count} note${props.count === 1 ? "" : "s"} to the waiting agent?`}
+      </p>
+      <label class="confirm-skip">
+        <input
+          type="checkbox"
+          checked={props.skip}
+          onChange={(e) => props.onSkipChange((e.target as HTMLInputElement).checked)}
+        />
+        Don't ask again
+      </label>
+    </ConfirmDialog>
   );
 }
 

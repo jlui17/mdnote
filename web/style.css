@@ -495,15 +495,6 @@ body {
   color: var(--accent-fg);
 }
 
-.btn-secondary {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.45em 0.8em;
-}
-
 .add-global {
   margin-bottom: 0.75rem;
 }
@@ -680,6 +671,28 @@ button kbd {
   display: block;
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+/* --- review wait (submit) ----------------------------------------------- */
+
+.confirm-skip {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.review-wait-msg {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.review-wait .btn-primary {
+  justify-content: center;
 }
 
 /* --- toast ------------------------------------------------------------- */

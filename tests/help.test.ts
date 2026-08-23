@@ -4,7 +4,7 @@ import { helpRows } from "../web/help.tsx";
 
 const bindings = (over: Partial<Record<ActionId, string | null>> = {}) =>
   ({
-    "copy-prompt": "mod+shift+c",
+    "submit-review": "mod+enter",
     "copy-markdown": null,
     "toggle-theme": null,
     "annotate-block": "c",

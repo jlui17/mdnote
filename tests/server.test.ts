@@ -386,6 +386,147 @@ describe("SSE keepalive", () => {
   });
 });
 
+describe("review wait and submit", () => {
+  const api = (b: string, f: string, route: string) =>
+    `${b}/api${route}?file=${encodeURIComponent(f)}`;
+
+  async function post(f: string, body: unknown): Promise<Annotation> {
+    const res = await fetch(api(base, f, "/annotations"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return (await res.json()) as Annotation;
+  }
+
+  async function pendingIs(f: string, want: boolean) {
+    for (let i = 0; i < 50; i++) {
+      const res = await fetch(api(base, f, "/annotations"));
+      const body = (await res.json()) as { reviewPending: boolean };
+      if (body.reviewPending === want) return;
+      await Bun.sleep(20);
+    }
+    throw new Error(`reviewPending never became ${want}`);
+  }
+
+  test("submit without a pending wait 409s", async () => {
+    const res = await fetch(api(base, file, "/submit"), { method: "POST" });
+    expect(res.status).toBe(409);
+  });
+
+  test("wait resolves on submit with the envelope, stamping rounds and skipping drafts", async () => {
+    const rf = join(dir, "review.md");
+    writeFileSync(rf, "# R\n\nbody\n");
+    await fetch(`${base}/api/open`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: rf }),
+    });
+    const first = await post(rf, { lineRange: [1, 1], anchorText: "# R", note: "tighten" });
+    await post(rf, { lineRange: [3, 3], anchorText: "body", note: "wip", draft: true });
+
+    const waitP = fetch(api(base, rf, "/wait")).then((r) => r.text());
+    await pendingIs(rf, true);
+
+    const sub = await fetch(api(base, rf, "/submit"), { method: "POST" });
+    expect(sub.status).toBe(200);
+    expect(await sub.json()).toEqual({ submitted: 1 });
+
+    const envelope = JSON.parse((await waitP).trim()) as {
+      path: string;
+      submittedAt: string;
+      annotations: Annotation[];
+    };
+    expect(envelope.path).toBe(rf);
+    expect(envelope.annotations).toHaveLength(1);
+    expect(envelope.annotations[0]?.id).toBe(first.id);
+    expect(envelope.annotations[0]?.round).toBe(1);
+    await pendingIs(rf, false);
+
+    // Round two: the undelivered note gets round 2, the re-delivered one keeps round 1.
+    const second = await post(rf, { lineRange: [3, 3], anchorText: "body", note: "expand" });
+    const waitP2 = fetch(api(base, rf, "/wait")).then((r) => r.text());
+    await pendingIs(rf, true);
+    await fetch(api(base, rf, "/submit"), { method: "POST" });
+    const envelope2 = JSON.parse((await waitP2).trim()) as { annotations: Annotation[] };
+    const rounds = new Map(envelope2.annotations.map((a) => [a.id, a.round]));
+    expect(rounds.get(first.id)).toBe(1);
+    expect(rounds.get(second.id)).toBe(2);
+  });
+
+  test("clearing annotations does not reset round numbering", async () => {
+    const rf = join(dir, "rounds.md");
+    writeFileSync(rf, "# R\n\nbody\n");
+    await fetch(`${base}/api/open`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: rf }),
+    });
+    await post(rf, { lineRange: [1, 1], anchorText: "# R", note: "first round" });
+    const waitP = fetch(api(base, rf, "/wait")).then((r) => r.text());
+    await pendingIs(rf, true);
+    await fetch(api(base, rf, "/submit"), { method: "POST" });
+    await waitP;
+
+    await fetch(api(base, rf, "/annotations"), { method: "DELETE" });
+    const next = await post(rf, { lineRange: [3, 3], anchorText: "body", note: "after clear" });
+
+    const waitP2 = fetch(api(base, rf, "/wait")).then((r) => r.text());
+    await pendingIs(rf, true);
+    await fetch(api(base, rf, "/submit"), { method: "POST" });
+    const envelope = JSON.parse((await waitP2).trim()) as { annotations: Annotation[] };
+    expect(envelope.annotations.find((a) => a.id === next.id)?.round).toBe(2);
+  });
+
+  test("a waiting stream receives keepalive bytes before the submit", async () => {
+    const prev = process.env.MDNOTE_PING_MS;
+    process.env.MDNOTE_PING_MS = "50";
+    const s = await startServer({ file, host: "127.0.0.1", port: 0 });
+    try {
+      const res = await fetch(`http://127.0.0.1:${s.port}/api/wait?file=${encodeURIComponent(file)}`);
+      const reader = res.body!.getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe("\n");
+      await reader.cancel();
+    } finally {
+      if (prev === undefined) delete process.env.MDNOTE_PING_MS;
+      else process.env.MDNOTE_PING_MS = prev;
+      await s.stop();
+    }
+  });
+
+  test("a pending wait holds the idle clock; abandoning it restarts the clock", async () => {
+    const prev = process.env.MDNOTE_IDLE_TIMEOUT_MS;
+    process.env.MDNOTE_IDLE_TIMEOUT_MS = "150";
+    let idle = 0;
+    const s = await startServer({
+      file,
+      host: "127.0.0.1",
+      port: 0,
+      onIdle: () => {
+        idle++;
+      },
+    });
+    try {
+      const ac = new AbortController();
+      const res = await fetch(
+        `http://127.0.0.1:${s.port}/api/wait?file=${encodeURIComponent(file)}`,
+        { signal: ac.signal },
+      );
+      void res.body!.getReader().read();
+      await Bun.sleep(300);
+      expect(idle).toBe(0);
+
+      ac.abort();
+      await Bun.sleep(600);
+      expect(idle).toBe(1);
+    } finally {
+      if (prev === undefined) delete process.env.MDNOTE_IDLE_TIMEOUT_MS;
+      else process.env.MDNOTE_IDLE_TIMEOUT_MS = prev;
+      await s.stop();
+    }
+  });
+});
+
 describe("idle shutdown", () => {
   test("the clock runs from boot, a connected client cancels it, disconnecting restarts it", async () => {
     const prev = process.env.MDNOTE_IDLE_TIMEOUT_MS;

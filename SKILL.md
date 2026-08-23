@@ -17,6 +17,14 @@ mdnote <file.md>
 
 Run it backgrounded or in another terminal — it serves the page and opens the browser, and keeps running for live reload. Optional `--host`/`--port` if the user wants it bound elsewhere; default is fine for local use.
 
+To hand a file to the user and block until they've reviewed it, use this instead of steps 1–2:
+
+```
+mdnote wait <file.md>
+```
+
+It opens the page for them (a bar in the page shows you're waiting), blocks until they click Submit, and prints one JSON envelope to stdout: `{path, submittedAt, annotations}`. Empty `annotations` means they approved as-is — proceed. Otherwise continue at step 3 with the envelope's annotations. Run it in the foreground and be prepared to wait minutes; there is no timeout. Each annotation carries a `round` number stamped at its first delivery, so on a repeat wait, notes with an older round are ones you already saw (still-open means you never cleared them).
+
 ## 2. Pull annotations
 
 ```

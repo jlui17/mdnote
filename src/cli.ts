@@ -102,20 +102,19 @@ async function cmdServe(file: string, host: string, port: number) {
   }
 }
 
-async function cmdReview(args: string[]) {
-  const { positional, flags } = parseFlags(args);
-  const arg = positional[0];
-  if (!arg) die("usage: mdnote <file.md> [--host H] [--port P]");
-  if (!existsSync(arg)) die(`mdnote: no such file: ${arg}`);
-  const file = resolve(arg);
+function bindFlags(flags: Record<string, string | boolean>): { host: string; port: number } {
+  return {
+    host: typeof flags.host === "string" ? flags.host : DEFAULT_HOST,
+    port: typeof flags.port === "string" ? Number(flags.port) : DEFAULT_PORT,
+  };
+}
 
-  const host = typeof flags.host === "string" ? flags.host : DEFAULT_HOST;
-  const port = typeof flags.port === "string" ? Number(flags.port) : DEFAULT_PORT;
-
-  if (flags.serve === true) {
-    await cmdServe(file, host, port);
-    return;
-  }
+/** Find-or-spawn the server and register `file`, returning the lock and document URL. */
+async function attachServer(
+  file: string,
+  flags: Record<string, string | boolean>,
+): Promise<{ lock: ServerLock; url: string }> {
+  const { host, port } = bindFlags(flags);
 
   let lock = readLiveLock();
   if (lock) {
@@ -129,9 +128,58 @@ async function cmdReview(args: string[]) {
 
   const url = await openOnServer(lock, file);
   if (!url) die(`mdnote: server at ${origin(lock)} is not responding; run \`mdnote stop\``);
+  return { lock, url };
+}
 
-  console.log(url);
+function openBrowser(lock: ServerLock, url: string) {
   if (lock.host === DEFAULT_HOST || lock.host === "localhost") Bun.spawn(["open", url]);
+}
+
+async function cmdReview(args: string[]) {
+  const { positional, flags } = parseFlags(args);
+  const arg = positional[0];
+  if (!arg) die("usage: mdnote <file.md> [--host H] [--port P]");
+  if (!existsSync(arg)) die(`mdnote: no such file: ${arg}`);
+  const file = resolve(arg);
+
+  if (flags.serve === true) {
+    const { host, port } = bindFlags(flags);
+    await cmdServe(file, host, port);
+    return;
+  }
+
+  const { lock, url } = await attachServer(file, flags);
+  console.log(url);
+  openBrowser(lock, url);
+}
+
+/** Opens `file` like a review invocation, then blocks until the user submits in the
+ *  browser; the ReviewEnvelope JSON is the only stdout (the URL goes to stderr). */
+async function cmdWait(args: string[]) {
+  const { positional, flags } = parseFlags(args);
+  const arg = positional[0];
+  if (!arg) die("usage: mdnote wait <file.md> [--host H] [--port P]");
+  if (!existsSync(arg)) die(`wait: no such file: ${arg}`);
+  const file = resolve(arg);
+
+  const { lock, url } = await attachServer(file, flags);
+  console.error(url);
+  openBrowser(lock, url);
+
+  let text: string;
+  try {
+    const res = await fetch(apiUrl(lock, file, "/wait"));
+    if (!res.ok) die(`wait: server refused (${res.status})`);
+    text = (await res.text()).trim();
+  } catch {
+    die("wait: server went away before a submit");
+  }
+  try {
+    JSON.parse(text);
+  } catch {
+    die("wait: server closed the wait without a submit");
+  }
+  console.log(text);
 }
 
 async function cmdList() {
@@ -247,6 +295,9 @@ async function main() {
       break;
     case "list":
       await cmdList();
+      break;
+    case "wait":
+      await cmdWait(rest);
       break;
     default:
       await cmdReview(process.argv.slice(2));
