@@ -276,12 +276,13 @@ body {
   background: var(--hover-bar);
 }
 
-/* Reading line (settings.json readingLine): one text line tall, behind the line under
-   the pointer. Chrome positioned from JS like the block boxes; it renders before them
-   so their washes paint over it. */
+/* Reading line (settings.json readingLine): one text line tall, over the line under the
+   pointer. Chrome positioned from JS like the block boxes, but painted above the text
+   as a translucent wash: under it, any block with its own background (code fences,
+   table heads) would hide it. It stays below popovers and dialogs. */
 .reading-line {
   position: absolute;
-  z-index: -1;
+  z-index: 1;
   pointer-events: none;
   background: var(--reading-line);
   box-shadow:
