@@ -22,7 +22,9 @@ bun src/cli.ts "$F" --host 0.0.0.0 --port 4477   # detaches and exits once the s
 
 The document URL is `http://127.0.0.1:4477/<absolute path to $F>` (the CLI prints it; `/` 302-redirects there). Always pass an explicit `--port` — the default is 4820 and a user's real server may hold it. Re-run both `export`s in every Bash call that talks to your server; `XDG_CONFIG_HOME` in particular must be set when the server is *spawned*, because `loadConfig()` runs in the server process.
 
-The frontend bundles once at server startup: after editing `web/` TS, restart the server (`bun src/cli.ts stop`, then the start command again). `style.css` is read per request, so CSS changes only need `agent-browser reload`.
+The frontend bundles once at server startup: after editing `web/` TS, restart the server (`bun src/cli.ts stop`, then the start command again). `style.css` and `themes.css` are read per request, so CSS changes only need `agent-browser reload`.
+
+The theme picker and reading-line toggle write through `PATCH /api/settings` into `$XDG_CONFIG_HOME/mdnote/settings.json` — another reason the config isolation above is mandatory: without it a test click rewrites the user's real settings.
 
 ## 2. One browser session per worktree
 

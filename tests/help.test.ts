@@ -7,6 +7,7 @@ const bindings = (over: Partial<Record<ActionId, string | null>> = {}) =>
     "submit-review": "mod+enter",
     "copy-markdown": null,
     "toggle-theme": null,
+    "toggle-reading-line": "r",
     "annotate-block": "c",
     "annotate-document": "shift+c",
     "edit-annotation": "e",

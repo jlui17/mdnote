@@ -1,5 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isMarkdownPath, pathToUrl, startServer } from "../src/server.ts";
@@ -524,6 +533,70 @@ describe("review wait and submit", () => {
       else process.env.MDNOTE_IDLE_TIMEOUT_MS = prev;
       await s.stop();
     }
+  });
+});
+
+describe("settings", () => {
+  /** Runs `body` with settings.json redirected to a fresh XDG_CONFIG_HOME. */
+  async function withConfigHome(body: (settingsFile: string) => Promise<void>) {
+    const configHome = mkdtempSync(join(tmpdir(), "mdnote-config-"));
+    const prev = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = configHome;
+    try {
+      await body(join(configHome, "mdnote", "settings.json"));
+    } finally {
+      if (prev === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = prev;
+      rmSync(configHome, { recursive: true, force: true });
+    }
+  }
+
+  const patch = (body: unknown) =>
+    fetch(`${base}/api/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  test("both stylesheets are served", async () => {
+    for (const name of ["/style.css", "/themes.css"]) {
+      const res = await fetch(base + name);
+      expect(res.status, name).toBe(200);
+      expect(res.headers.get("content-type"), name).toContain("text/css");
+      expect((await res.text()).length, name).toBeGreaterThan(0);
+    }
+  });
+
+  test("PATCH writes settings.json, answers with the resolved config, and tells every tab", async () => {
+    await withConfigHome(async (settingsFile) => {
+      const events = await fetch(`${base}/api/events?file=${encodeURIComponent(file)}`);
+      const reader = events.body!.getReader();
+      await reader.read();
+      const heard = reader.read().then(({ value }) => new TextDecoder().decode(value));
+      await Bun.sleep(30);
+
+      const res = await patch({ theme: "dracula", readingLine: true });
+      expect(res.status).toBe(200);
+      const cfg = (await res.json()) as { theme: string; readingLine: boolean };
+      expect(cfg.theme).toBe("dracula");
+      expect(cfg.readingLine).toBe(true);
+      expect(JSON.parse(readFileSync(settingsFile, "utf8"))).toEqual({ theme: "dracula", readingLine: true });
+      expect(await Promise.race([heard, Bun.sleep(600).then(() => null)])).toContain("event: settings");
+      await reader.cancel();
+
+      const got = (await (await fetch(`${base}/api/settings`)).json()) as { theme: string };
+      expect(got.theme).toBe("dracula");
+      expect(await (await fetch(base + pathToUrl(file))).text()).toContain('"theme":"dracula"');
+    });
+  });
+
+  test("PATCH rejects what the UI may not write and leaves no file behind", async () => {
+    await withConfigHome(async (settingsFile) => {
+      expect((await patch({ lineNumbers: true })).status).toBe(400);
+      expect((await patch({ theme: "solarized" })).status).toBe(400);
+      expect((await patch("nope")).status).toBe(400);
+      expect(existsSync(settingsFile)).toBe(false);
+    });
   });
 });
 

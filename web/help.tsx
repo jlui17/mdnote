@@ -26,6 +26,10 @@ const ROWS: { action: ActionId; desc?: string }[] = [
     action: "submit-review",
     desc: "Send annotations to the waiting agent; none sent means approve.",
   },
+  {
+    action: "toggle-reading-line",
+    desc: "A band one line tall follows the pointer through the doc. Saved to settings.",
+  },
 ];
 
 export interface HelpEntry {

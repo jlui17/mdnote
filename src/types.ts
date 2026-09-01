@@ -1,16 +1,22 @@
 import type { ActionId } from "./actions.ts";
+import type { Theme } from "./themes.ts";
+
+export type { Theme };
 
 export type AnnotationStatus = "open" | "stale";
-
-export type Theme = "light" | "dark" | "system";
 
 /** Settings merged over app defaults; the server injects this into index.html as window.__MDNOTE_CONFIG__. */
 export interface ResolvedConfig {
   theme: Theme;
   lineNumbers: boolean;
+  /** A band one text line tall behind the line under the pointer: the reading ruler. */
+  readingLine: boolean;
   /** Full map, one entry per action; null means unbound. */
   keybindings: Record<ActionId, string | null>;
 }
+
+/** Body of PATCH /api/settings: the keys the UI writes back to settings.json. */
+export type SettingsPatch = Partial<Pick<ResolvedConfig, "theme" | "readingLine">>;
 
 /** Contents of the global lock naming the running server. */
 export interface ServerLock {
