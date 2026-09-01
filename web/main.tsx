@@ -261,7 +261,8 @@ function readingLineBox(doc: Element, el: Element, caret: { node: Node; offset: 
   return readingBand(doc, glyph.top + glyph.height / 2 + window.scrollY, linePitch(el, glyph.height));
 }
 
-type TextLine = { center: number; height: number };
+/** `block` is the stamped block the line belongs to: what `c` annotates when the band is on it. */
+type TextLine = { center: number; height: number; block: Element | null };
 
 /** Every visual text line of the doc, top to bottom, as a page-coordinate center plus the
  *  pitch of the block it sits in, from each text node's client rects. Fragments sharing a
@@ -274,19 +275,22 @@ function textLines(doc: Element): TextLine[] {
     if (!parent || !node.textContent?.trim()) continue;
     const range = document.createRange();
     range.selectNodeContents(node);
+    const block = parent.closest("[data-source-line]");
     let pitch: number | null = null;
     for (const r of range.getClientRects()) {
       if (r.width <= 0 || r.height <= 0) continue;
       pitch ??= linePitch(parent, r.height);
-      rows.push({ center: r.top + r.height / 2 + window.scrollY, height: pitch });
+      rows.push({ center: r.top + r.height / 2 + window.scrollY, height: pitch, block });
     }
   }
   rows.sort((a, b) => a.center - b.center);
   const lines: TextLine[] = [];
   for (const row of rows) {
     const last = lines[lines.length - 1];
-    if (last && Math.abs(last.center - row.center) < 2) last.height = Math.max(last.height, row.height);
-    else lines.push({ ...row });
+    if (last && Math.abs(last.center - row.center) < 2) {
+      last.height = Math.max(last.height, row.height);
+      last.block ??= row.block;
+    } else lines.push({ ...row });
   }
   return lines;
 }
@@ -301,11 +305,18 @@ const POINTER_RECLAIM_PX = 40;
  *  until the pointer travels POINTER_RECLAIM_PX. Scrolling leaves it on the line it marked;
  *  a pointer off the text keeps the last line; a doc reload or resize drops it (and the
  *  cached line list) rather than trusting stale geometry. */
-function ReadingLine(props: { docRef: RefObject<HTMLDivElement>; docHtml: string | undefined }) {
+function ReadingLine(props: {
+  docRef: RefObject<HTMLDivElement>;
+  docHtml: string | undefined;
+  /** The block the band sits on, null whenever the band is dropped; App points `c` at it. */
+  onTarget: (block: Element | null) => void;
+}) {
   const [band, setBand] = useState<Box | null>(null);
   const bandRef = useRef<Box | null>(null);
   bandRef.current = band;
   const linesRef = useRef<TextLine[] | null>(null);
+  const onTargetRef = useRef(props.onTarget);
+  onTargetRef.current = props.onTarget;
   const pointerRef = useRef<{ x: number; y: number } | null>(null);
   // Where the pointer sat when the keyboard last placed the band; "unknown" when it has not
   // moved since load, so the first move only records it instead of reclaiming.
@@ -330,6 +341,7 @@ function ReadingLine(props: { docRef: RefObject<HTMLDivElement>; docHtml: string
         : [...lines].reverse().find((l) => l.center < from - 1);
     if (!next) return;
     setBand(readingBand(doc, next.center, next.height));
+    onTargetRef.current(next.block);
     keyboardHoldRef.current = pointerRef.current ?? "unknown";
     window.scrollTo({ top: next.center - window.innerHeight / 2 });
   };
@@ -348,7 +360,9 @@ function ReadingLine(props: { docRef: RefObject<HTMLDivElement>; docHtml: string
       const el = node instanceof Element ? node : (node?.parentElement ?? null);
       if (!caret || !el || el === doc || !doc.contains(el)) return;
       const next = readingLineBox(doc, el, caret);
-      if (next) setBand(next);
+      if (!next) return;
+      setBand(next);
+      onTargetRef.current(el.closest("[data-source-line]"));
     };
     const onMouseMove = (e: MouseEvent) => {
       pointerRef.current = { x: e.clientX, y: e.clientY };
@@ -372,11 +386,15 @@ function ReadingLine(props: { docRef: RefObject<HTMLDivElement>; docHtml: string
   const invalidate = () => {
     linesRef.current = null;
     setBand(null);
+    onTargetRef.current(null);
   };
   useEffect(invalidate, [props.docHtml]);
   useEffect(() => {
     window.addEventListener("resize", invalidate);
-    return () => window.removeEventListener("resize", invalidate);
+    return () => {
+      window.removeEventListener("resize", invalidate);
+      onTargetRef.current(null);
+    };
   }, []);
 
   return band && <div class="reading-line" style={boxStyle(band)} />;
@@ -892,6 +910,7 @@ function App() {
   const [pending, setPending] = useState<SelectionAnchor | null>(null);
   const [openAnn, setOpenAnn] = useState<OpenAnn | null>(null);
   const [hovered, setHovered] = useState<Element | null>(null);
+  const [readingTarget, setReadingTarget] = useState<Element | null>(null);
   const [focus, setFocus] = useState<{ id: string; tick: number } | null>(null);
   const [hoveredEntryId, setHoveredEntryId] = useState<string | null>(null);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
@@ -1256,7 +1275,10 @@ function App() {
     if (anchor) beginPending(anchor);
   };
 
-  useAction("annotate-block", () => annotateBlock(hovered));
+  // While the reading line is on, the block under its band is what `c` notes and what the
+  // hover bar marks, so a read driven by the arrows never needs the pointer.
+  const target = settings.readingLine ? (readingTarget ?? hovered) : hovered;
+  useAction("annotate-block", () => annotateBlock(target));
 
   // Target resolution for e/d: hovered sidebar entry, else the open doc popover,
   // else the last-clicked (focused) entry. What the pointer is on beats the
@@ -1333,12 +1355,14 @@ function App() {
   };
 
   const blockRect = pending?.blocks ? paddedBox(pending.blocks) : null;
-  const hoverRect = hovered?.isConnected ? blockBox(hovered) : null;
+  const hoverRect = target?.isConnected ? blockBox(target) : null;
   const openAnnotation = openAnn ? annotations.find((a) => a.id === openAnn.id) : undefined;
 
   return (
     <>
-      {settings.readingLine && <ReadingLine docRef={docRef} docHtml={doc?.html} />}
+      {settings.readingLine && (
+        <ReadingLine docRef={docRef} docHtml={doc?.html} onTarget={setReadingTarget} />
+      )}
       {hoverRect && (
         <div
           class="hover-bar"
