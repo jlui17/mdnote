@@ -184,14 +184,9 @@ function useSettings(onError: (message: string) => void) {
 }
 
 function ThemePicker(props: { theme: Theme; onChange: (theme: Theme) => void }) {
-  useAction("toggle-theme", () =>
-    props.onChange(THEMES[(THEMES.indexOf(props.theme) + 1) % THEMES.length]!),
-  );
-
   return (
     <select
       class="theme-select"
-      title="Theme"
       aria-label="Theme"
       value={props.theme}
       onChange={(e) => props.onChange((e.target as HTMLSelectElement).value as Theme)}
@@ -231,32 +226,94 @@ function IconButton(props: { id: ActionId; glyph: string; active?: boolean }) {
   );
 }
 
-/** The text line under `caret`, as a page-coordinate box spanning the doc's width: one
- *  computed line-height tall (a code block's pitch lives on its <code>, prose's on the
- *  stamped block), centered on the caret's glyph box. */
+/** The line pitch text inside `el` is set on: a code block's lives on its <code>, prose's
+ *  on the stamped block. */
+function linePitch(el: Element, fallback: number): number {
+  const owner = el.closest("pre code") ?? el.closest("[data-source-line]") ?? el;
+  const lineHeight = parseFloat(getComputedStyle(owner).lineHeight);
+  return lineHeight > 0 ? lineHeight : fallback;
+}
+
+/** A reading band in page coordinates: the doc's width, `height` tall, centered on `centerY`. */
+function readingBand(doc: Element, centerY: number, height: number): Box {
+  const docRect = doc.getBoundingClientRect();
+  return { left: docRect.left + window.scrollX, top: centerY - height / 2, width: docRect.width, height };
+}
+
+/** The text line under `caret`: one pitch tall, centered on the caret's glyph box. */
 function readingLineBox(doc: Element, el: Element, caret: { node: Node; offset: number }): Box | null {
   const range = document.createRange();
   range.setStart(caret.node, caret.offset);
   range.collapse(true);
   const glyph = range.getBoundingClientRect();
   if (!glyph.height) return null;
-  const pitchOwner = el.closest("pre code") ?? el.closest("[data-source-line]") ?? el;
-  const lineHeight = parseFloat(getComputedStyle(pitchOwner).lineHeight);
-  const height = lineHeight > 0 ? lineHeight : glyph.height;
-  const docRect = doc.getBoundingClientRect();
-  return {
-    left: docRect.left + window.scrollX,
-    top: glyph.top + glyph.height / 2 - height / 2 + window.scrollY,
-    width: docRect.width,
-    height,
-  };
+  return readingBand(doc, glyph.top + glyph.height / 2 + window.scrollY, linePitch(el, glyph.height));
 }
 
-/** The reading line: chrome outside #doc, like the block boxes. It moves only on pointer
- *  moves, so scrolling leaves it on the line it marked; a pointer off the text keeps the
- *  last line; a doc reload or resize drops it rather than trusting stale geometry. */
+type TextLine = { center: number; height: number };
+
+/** Every visual text line of the doc, top to bottom, as a page-coordinate center plus the
+ *  pitch of the block it sits in, from each text node's client rects. Fragments sharing a
+ *  line (inline runs, table cells) collapse to one entry, so the arrows step by line. */
+function textLines(doc: Element): TextLine[] {
+  const rows: TextLine[] = [];
+  const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const parent = node.parentElement;
+    if (!parent || !node.textContent?.trim()) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    let pitch: number | null = null;
+    for (const r of range.getClientRects()) {
+      if (r.width <= 0 || r.height <= 0) continue;
+      pitch ??= linePitch(parent, r.height);
+      rows.push({ center: r.top + r.height / 2 + window.scrollY, height: pitch });
+    }
+  }
+  rows.sort((a, b) => a.center - b.center);
+  const lines: TextLine[] = [];
+  for (const row of rows) {
+    const last = lines[lines.length - 1];
+    if (last && Math.abs(last.center - row.center) < 2) last.height = Math.max(last.height, row.height);
+    else lines.push({ ...row });
+  }
+  return lines;
+}
+
+/** The reading line: chrome outside #doc, like the block boxes. It moves on pointer moves
+ *  and on the arrow actions, so scrolling leaves it on the line it marked; a pointer off
+ *  the text keeps the last line; a doc reload or resize drops it (and the cached line
+ *  list) rather than trusting stale geometry. */
 function ReadingLine(props: { docRef: RefObject<HTMLDivElement>; docHtml: string | undefined }) {
   const [band, setBand] = useState<Box | null>(null);
+  const bandRef = useRef<Box | null>(null);
+  bandRef.current = band;
+  const linesRef = useRef<TextLine[] | null>(null);
+
+  // Steps to the neighboring text line, or from the edge of the viewport when there is no
+  // band yet, and scrolls so the band never leaves the middle of the viewport.
+  const step = (dir: 1 | -1) => {
+    const doc = props.docRef.current;
+    if (!doc) return;
+    const lines = (linesRef.current ??= textLines(doc));
+    const cur = bandRef.current;
+    const from = cur
+      ? cur.top + cur.height / 2
+      : dir > 0
+        ? window.scrollY - 1
+        : window.scrollY + window.innerHeight + 1;
+    const next =
+      dir > 0
+        ? lines.find((l) => l.center > from + 1)
+        : [...lines].reverse().find((l) => l.center < from - 1);
+    if (!next) return;
+    setBand(readingBand(doc, next.center, next.height));
+    const clientY = next.center - window.scrollY;
+    const vh = window.innerHeight;
+    if (clientY < vh * 0.15 || clientY > vh * 0.85) window.scrollTo({ top: next.center - vh / 2 });
+  };
+  useAction("reading-line-down", () => step(1));
+  useAction("reading-line-up", () => step(-1));
 
   useEffect(() => {
     let frame = 0;
@@ -283,11 +340,14 @@ function ReadingLine(props: { docRef: RefObject<HTMLDivElement>; docHtml: string
     };
   }, []);
 
-  useEffect(() => setBand(null), [props.docHtml]);
+  const invalidate = () => {
+    linesRef.current = null;
+    setBand(null);
+  };
+  useEffect(invalidate, [props.docHtml]);
   useEffect(() => {
-    const clear = () => setBand(null);
-    window.addEventListener("resize", clear);
-    return () => window.removeEventListener("resize", clear);
+    window.addEventListener("resize", invalidate);
+    return () => window.removeEventListener("resize", invalidate);
   }, []);
 
   return band && <div class="reading-line" style={boxStyle(band)} />;
@@ -1134,6 +1194,11 @@ function App() {
   useAction("copy-markdown", copyMarkdown);
   useAction("show-help", () => setHelpOpen((open) => !open));
   useAction("toggle-reading-line", () => setSetting({ readingLine: !settings.readingLine }));
+  // Registered here, not in the picker: the picker mounts only while the settings row is
+  // open, and the key must work regardless.
+  useAction("toggle-theme", () =>
+    setSetting({ theme: THEMES[(THEMES.indexOf(settings.theme) + 1) % THEMES.length]! }),
+  );
   useActionDispatcher();
 
   const submit = (body: NewAnnotation) => {
@@ -1416,6 +1481,7 @@ function Sidebar(props: {
   readingLine: boolean;
 }) {
   const [adding, setAdding] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { editingId, onEditingChange } = props;
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -1436,6 +1502,7 @@ function Sidebar(props: {
 
   const addKb = bindingFor("annotate-document");
   const helpKb = bindingFor("show-help");
+  const readingLineKb = bindingFor("toggle-reading-line");
   const name = props.path?.split("/").pop() ?? "";
   const count = props.annotations.length;
   const entries = [...props.annotations].sort(
@@ -1471,11 +1538,40 @@ function Sidebar(props: {
         </div>
         <div class="sb-tools">
           <IconButton id="copy-markdown" glyph="⧉" />
-          <IconButton id="toggle-reading-line" glyph="▬" active={props.readingLine} />
-          <ThemePicker theme={props.theme} onChange={props.onTheme} />
+          <button
+            type="button"
+            class={`btn-icon${settingsOpen ? " active" : ""}`}
+            title="Settings"
+            aria-label="Settings"
+            aria-expanded={settingsOpen}
+            onClick={() => setSettingsOpen((open) => !open)}
+          >
+            ⚙
+          </button>
           <IconButton id="show-help" glyph="?" />
         </div>
       </header>
+
+      {settingsOpen && (
+        <div class="sb-settings">
+          <label class="setting">
+            <span>Theme</span>
+            <ThemePicker theme={props.theme} onChange={props.onTheme} />
+          </label>
+          <label class="setting">
+            <span>Reading line</span>
+            <span class="setting-control">
+              {readingLineKb && <kbd>{formatKeybinding(readingLineKb)}</kbd>}
+              <input
+                type="checkbox"
+                aria-label={ACTIONS["toggle-reading-line"].label}
+                checked={props.readingLine}
+                onChange={() => runAction("toggle-reading-line")}
+              />
+            </span>
+          </label>
+        </div>
+      )}
 
       <div class="sb-body">
         {!adding && (

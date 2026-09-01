@@ -30,6 +30,11 @@ const ROWS: { action: ActionId; desc?: string }[] = [
     action: "toggle-reading-line",
     desc: "A band one line tall follows the pointer through the doc. Saved to settings.",
   },
+  {
+    action: "reading-line-down",
+    desc: "Steps the band to the next text line and keeps it in view. Only while the line is on.",
+  },
+  { action: "reading-line-up" },
 ];
 
 export interface HelpEntry {

@@ -30,8 +30,16 @@ export function matchesEvent(kb: Keybinding, e: KeyboardEvent, mac = isMac): boo
   );
 }
 
+const KEY_GLYPHS: Record<string, string> = {
+  enter: "↩",
+  arrowup: "↑",
+  arrowdown: "↓",
+  arrowleft: "←",
+  arrowright: "→",
+};
+
 export function formatKeybinding(kb: Keybinding, mac = isMac): string {
-  const key = kb.key === "enter" ? "↩" : kb.key.toUpperCase();
+  const key = KEY_GLYPHS[kb.key] ?? kb.key.toUpperCase();
   if (mac) {
     return (kb.mod ? "⌘" : "") + (kb.alt ? "⌥" : "") + (kb.shift ? "⇧" : "") + key;
   }
@@ -78,7 +86,9 @@ export function useActionDispatcher(): void {
       for (const id of Object.keys(ACTIONS) as ActionId[]) {
         const kb = bindingFor(id);
         if (!kb || (typing && !kb.mod)) continue;
-        if (matchesEvent(kb, e)) {
+        // An action nothing has mounted (the reading-line steps while the line is off)
+        // leaves its key to the browser, so bare arrows still scroll.
+        if (matchesEvent(kb, e) && registry.has(id)) {
           e.preventDefault();
           runAction(id);
           return;

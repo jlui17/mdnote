@@ -8,6 +8,8 @@ const bindings = (over: Partial<Record<ActionId, string | null>> = {}) =>
     "copy-markdown": null,
     "toggle-theme": null,
     "toggle-reading-line": "r",
+    "reading-line-down": "arrowdown",
+    "reading-line-up": "arrowup",
     "annotate-block": "c",
     "annotate-document": "shift+c",
     "edit-annotation": "e",
