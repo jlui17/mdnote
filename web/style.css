@@ -288,9 +288,6 @@ body {
   box-shadow:
     inset 0 1px var(--reading-line-edge),
     inset 0 -1px var(--reading-line-edge);
-  transition:
-    top 80ms ease-out,
-    height 80ms ease-out;
 }
 
 /* Whole-block pending selection: one tinted box behind the block (z-index -1
@@ -495,7 +492,7 @@ body {
   color: var(--accent);
 }
 
-/* Settings row: revealed by the ⚙ in the header so the header keeps the file name. */
+/* Settings row under the header, which keeps the header for the file name. */
 .sb-settings {
   flex: none;
   display: flex;
