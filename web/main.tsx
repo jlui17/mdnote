@@ -184,12 +184,23 @@ function useSettings(onError: (message: string) => void) {
 }
 
 function ThemePicker(props: { theme: Theme; onChange: (theme: Theme) => void }) {
+  // A pick made with the pointer releases focus, so the arrows go back to the reading
+  // line instead of cycling themes; a keyboard user stays in the select.
+  const pointerPick = useRef(false);
   return (
     <select
       class="theme-select"
       aria-label="Theme"
       value={props.theme}
-      onChange={(e) => props.onChange((e.target as HTMLSelectElement).value as Theme)}
+      onMouseDown={() => (pointerPick.current = true)}
+      onChange={(e) => {
+        const select = e.target as HTMLSelectElement;
+        props.onChange(select.value as Theme);
+        if (pointerPick.current) {
+          pointerPick.current = false;
+          select.blur();
+        }
+      }}
     >
       <optgroup label="Mode">
         {THEME_MODES.map((t) => (
@@ -280,18 +291,29 @@ function textLines(doc: Element): TextLine[] {
   return lines;
 }
 
-/** The reading line: chrome outside #doc, like the block boxes. It moves on pointer moves
- *  and on the arrow actions, so scrolling leaves it on the line it marked; a pointer off
- *  the text keeps the last line; a doc reload or resize drops it (and the cached line
- *  list) rather than trusting stale geometry. */
+/* Pointer travel, in px, that takes the band back from the keyboard after an arrow step:
+ * enough that a resting hand's jitter never moves it, small enough that reaching for a
+ * line with the mouse feels immediate. */
+const POINTER_RECLAIM_PX = 40;
+
+/** The reading line: chrome outside #doc, like the block boxes. The pointer moves it until
+ *  an arrow step, after which the keyboard owns it — each step recenters the page on it —
+ *  until the pointer travels POINTER_RECLAIM_PX. Scrolling leaves it on the line it marked;
+ *  a pointer off the text keeps the last line; a doc reload or resize drops it (and the
+ *  cached line list) rather than trusting stale geometry. */
 function ReadingLine(props: { docRef: RefObject<HTMLDivElement>; docHtml: string | undefined }) {
   const [band, setBand] = useState<Box | null>(null);
   const bandRef = useRef<Box | null>(null);
   bandRef.current = band;
   const linesRef = useRef<TextLine[] | null>(null);
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  // Where the pointer sat when the keyboard last placed the band; "unknown" when it has not
+  // moved since load, so the first move only records it instead of reclaiming.
+  const keyboardHoldRef = useRef<{ x: number; y: number } | "unknown" | null>(null);
 
   // Steps to the neighboring text line, or from the edge of the viewport when there is no
-  // band yet, and scrolls so the band never leaves the middle of the viewport.
+  // band yet, and scrolls so the band sits at the viewport's center (the page clamps at
+  // its ends, so the first and last lines stay where they are).
   const step = (dir: 1 | -1) => {
     const doc = props.docRef.current;
     if (!doc) return;
@@ -308,9 +330,8 @@ function ReadingLine(props: { docRef: RefObject<HTMLDivElement>; docHtml: string
         : [...lines].reverse().find((l) => l.center < from - 1);
     if (!next) return;
     setBand(readingBand(doc, next.center, next.height));
-    const clientY = next.center - window.scrollY;
-    const vh = window.innerHeight;
-    if (clientY < vh * 0.15 || clientY > vh * 0.85) window.scrollTo({ top: next.center - vh / 2 });
+    keyboardHoldRef.current = pointerRef.current ?? "unknown";
+    window.scrollTo({ top: next.center - window.innerHeight / 2 });
   };
   useAction("reading-line-down", () => step(1));
   useAction("reading-line-up", () => step(-1));
@@ -330,7 +351,15 @@ function ReadingLine(props: { docRef: RefObject<HTMLDivElement>; docHtml: string
       if (next) setBand(next);
     };
     const onMouseMove = (e: MouseEvent) => {
-      at = { x: e.clientX, y: e.clientY };
+      pointerRef.current = { x: e.clientX, y: e.clientY };
+      const hold = keyboardHoldRef.current;
+      if (hold === "unknown") {
+        keyboardHoldRef.current = pointerRef.current;
+        return;
+      }
+      if (hold && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) < POINTER_RECLAIM_PX) return;
+      keyboardHoldRef.current = null;
+      at = pointerRef.current;
       if (!frame) frame = requestAnimationFrame(sample);
     };
     document.addEventListener("mousemove", onMouseMove);
@@ -1194,8 +1223,6 @@ function App() {
   useAction("copy-markdown", copyMarkdown);
   useAction("show-help", () => setHelpOpen((open) => !open));
   useAction("toggle-reading-line", () => setSetting({ readingLine: !settings.readingLine }));
-  // Registered here, not in the picker: the picker mounts only while the settings row is
-  // open, and the key must work regardless.
   useAction("toggle-theme", () =>
     setSetting({ theme: THEMES[(THEMES.indexOf(settings.theme) + 1) % THEMES.length]! }),
   );
@@ -1481,7 +1508,6 @@ function Sidebar(props: {
   readingLine: boolean;
 }) {
   const [adding, setAdding] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const { editingId, onEditingChange } = props;
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -1538,40 +1564,28 @@ function Sidebar(props: {
         </div>
         <div class="sb-tools">
           <IconButton id="copy-markdown" glyph="⧉" />
-          <button
-            type="button"
-            class={`btn-icon${settingsOpen ? " active" : ""}`}
-            title="Settings"
-            aria-label="Settings"
-            aria-expanded={settingsOpen}
-            onClick={() => setSettingsOpen((open) => !open)}
-          >
-            ⚙
-          </button>
           <IconButton id="show-help" glyph="?" />
         </div>
       </header>
 
-      {settingsOpen && (
-        <div class="sb-settings">
-          <label class="setting">
-            <span>Theme</span>
-            <ThemePicker theme={props.theme} onChange={props.onTheme} />
-          </label>
-          <label class="setting">
-            <span>Reading line</span>
-            <span class="setting-control">
-              {readingLineKb && <kbd>{formatKeybinding(readingLineKb)}</kbd>}
-              <input
-                type="checkbox"
-                aria-label={ACTIONS["toggle-reading-line"].label}
-                checked={props.readingLine}
-                onChange={() => runAction("toggle-reading-line")}
-              />
-            </span>
-          </label>
-        </div>
-      )}
+      <div class="sb-settings">
+        <label class="setting">
+          <span>Theme</span>
+          <ThemePicker theme={props.theme} onChange={props.onTheme} />
+        </label>
+        <label class="setting">
+          <span>Reading line</span>
+          <span class="setting-control">
+            {readingLineKb && <kbd>{formatKeybinding(readingLineKb)}</kbd>}
+            <input
+              type="checkbox"
+              aria-label={ACTIONS["toggle-reading-line"].label}
+              checked={props.readingLine}
+              onChange={() => runAction("toggle-reading-line")}
+            />
+          </span>
+        </label>
+      </div>
 
       <div class="sb-body">
         {!adding && (

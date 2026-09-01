@@ -82,7 +82,13 @@ export function useActionDispatcher(): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const typing = !!target && /^(input|textarea|select)$/i.test(target.tagName);
+      // A control that takes typed or arrow-key input keeps its bare keys; a focused
+      // checkbox or button takes neither, so shortcuts still fire after clicking one.
+      const typing =
+        !!target &&
+        (/^(textarea|select)$/i.test(target.tagName) ||
+          (target.tagName === "INPUT" &&
+            !/^(checkbox|button|submit|reset)$/i.test((target as HTMLInputElement).type)));
       for (const id of Object.keys(ACTIONS) as ActionId[]) {
         const kb = bindingFor(id);
         if (!kb || (typing && !kb.mod)) continue;
