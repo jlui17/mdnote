@@ -14,7 +14,7 @@ const INTRO = "Click a block or highlight some text to add a note.";
 const ROWS: { action: ActionId; desc?: string }[] = [
   {
     action: "annotate-block",
-    desc: "Note the block under the pointer. Click it, or press the key while hovering.",
+    desc: "Note the block under the pointer, or under the reading line while it is on. Click it, or press the key.",
   },
   { action: "annotate-document" },
   {
