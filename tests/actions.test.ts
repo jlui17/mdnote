@@ -38,6 +38,8 @@ test("formatKeybinding renders per platform", () => {
   expect(formatKeybinding(parseKeybinding("alt+k"), true)).toBe("⌥K");
   expect(formatKeybinding(parseKeybinding("mod+enter"), true)).toBe("⌘↩");
   expect(formatKeybinding(parseKeybinding("mod+enter"), false)).toBe("Ctrl+↩");
+  expect(formatKeybinding(parseKeybinding("arrowdown"), true)).toBe("↓");
+  expect(formatKeybinding(parseKeybinding("shift+arrowup"), false)).toBe("Shift+↑");
 });
 
 test("bindingFor reads the resolved map, defaulting to the catalog", () => {
@@ -49,6 +51,8 @@ test("bindingFor reads the resolved map, defaulting to the catalog", () => {
       "copy-markdown": null,
       "toggle-theme": null,
       "toggle-reading-line": "r",
+      "reading-line-down": "arrowdown",
+      "reading-line-up": "arrowup",
       "annotate-block": "mod+p",
       "annotate-document": "shift+c",
       "edit-annotation": "e",
@@ -62,6 +66,8 @@ test("bindingFor reads the resolved map, defaulting to the catalog", () => {
       "copy-markdown": null,
       "toggle-theme": "mod+t",
       "toggle-reading-line": "r",
+      "reading-line-down": "arrowdown",
+      "reading-line-up": "arrowup",
       "annotate-block": null,
       "annotate-document": "shift+c",
       "edit-annotation": "e",

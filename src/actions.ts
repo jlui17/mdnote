@@ -3,6 +3,8 @@ export type ActionId =
   | "copy-markdown"
   | "toggle-theme"
   | "toggle-reading-line"
+  | "reading-line-down"
+  | "reading-line-up"
   | "annotate-block"
   | "annotate-document"
   | "edit-annotation"
@@ -14,6 +16,8 @@ export const ACTIONS: Record<ActionId, { label: string; keybinding?: string }> =
   "copy-markdown": { label: "Copy markdown" },
   "toggle-theme": { label: "Next theme" },
   "toggle-reading-line": { label: "Toggle reading line", keybinding: "r" },
+  "reading-line-down": { label: "Reading line: next line", keybinding: "arrowdown" },
+  "reading-line-up": { label: "Reading line: previous line", keybinding: "arrowup" },
   "annotate-block": { label: "Annotate hovered block", keybinding: "c" },
   "annotate-document": { label: "Add general note", keybinding: "shift+c" },
   "edit-annotation": { label: "Edit note", keybinding: "e" },

@@ -495,11 +495,55 @@ body {
   color: var(--accent);
 }
 
+/* Settings row: revealed by the ⚙ in the header so the header keeps the file name. */
+.sb-settings {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.setting > span:first-child {
+  color: var(--muted);
+}
+
+.setting-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.setting-control kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.05em 0.4em;
+}
+
+.setting input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .theme-select {
   font: inherit;
-  font-size: 0.8rem;
-  max-width: 7.5rem;
-  padding: 0.2em 0.35em;
+  font-size: 0.85rem;
+  max-width: 12rem;
+  padding: 0.2em 0.4em;
   background: var(--surface);
   color: var(--fg);
   border: 1px solid var(--line);
