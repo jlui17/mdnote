@@ -8,7 +8,7 @@ import {
 } from "../src/actions.ts";
 import type { ResolvedConfig } from "../src/types.ts";
 
-export { ACTIONS, parseKeybinding, type ActionId, type Keybinding };
+export { ACTIONS, defaultKeybindings, parseKeybinding, type ActionId, type Keybinding };
 
 declare global {
   interface Window {

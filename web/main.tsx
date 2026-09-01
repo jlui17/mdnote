@@ -6,12 +6,16 @@ import type {
   AnnotationStatus,
   DocResponse,
   NewAnnotation,
+  ResolvedConfig,
+  SettingsPatch,
   Theme,
 } from "../src/types.ts";
+import { THEME_MODES, THEME_NAMES, THEMES } from "../src/themes.ts";
 import {
   ACTIONS,
   ActionButton,
   bindingFor,
+  defaultKeybindings,
   formatKeybinding,
   runAction,
   SUBMIT_KEY,
@@ -134,44 +138,159 @@ async function copyText(text: string): Promise<void> {
   ta.remove();
 }
 
-const THEME_NEXT: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
-const THEME_ICON: Record<Theme, string> = { system: "◐", light: "☀", dark: "☾" };
-
-function ThemeToggle() {
-  const [mode, setMode] = useState<Theme>(() => window.__MDNOTE_CONFIG__?.theme ?? "dark");
-  const cycle = () => setMode((m) => THEME_NEXT[m]);
+/** The server owns settings: the injected config seeds state, a change applies locally
+ *  at once and goes out as PATCH /api/settings, and other tabs learn of it through the
+ *  `settings` SSE event (`refresh`). A failed write leaves the change session-only. */
+function useSettings(onError: (message: string) => void) {
+  const [settings, setSettings] = useState<ResolvedConfig>(
+    () =>
+      window.__MDNOTE_CONFIG__ ?? {
+        theme: "dark",
+        lineNumbers: false,
+        readingLine: false,
+        keybindings: defaultKeybindings(),
+      },
+  );
 
   useEffect(() => {
-    if (mode === "system") {
-      delete document.documentElement.dataset.theme;
-    } else {
-      document.documentElement.dataset.theme = mode;
-    }
-  }, [mode]);
+    const root = document.documentElement;
+    if (settings.theme === "system") delete root.dataset.theme;
+    else root.dataset.theme = settings.theme;
+    root.classList.toggle("line-numbers", settings.lineNumbers);
+  }, [settings]);
 
-  useAction("toggle-theme", cycle);
+  const update = (patch: SettingsPatch) => {
+    setSettings((s) => ({ ...s, ...patch }));
+    void fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then(
+      async (res) => {
+        if (res.ok) setSettings((await res.json()) as ResolvedConfig);
+        else onError("Could not save settings");
+      },
+      () => onError("Could not save settings"),
+    );
+  };
+
+  const refresh = () =>
+    void fetch("/api/settings")
+      .then((res) => (res.ok ? (res.json() as Promise<ResolvedConfig>) : null))
+      .then((cfg) => cfg && setSettings(cfg))
+      .catch(() => {});
+
+  return { settings, update, refresh };
+}
+
+function ThemePicker(props: { theme: Theme; onChange: (theme: Theme) => void }) {
+  useAction("toggle-theme", () =>
+    props.onChange(THEMES[(THEMES.indexOf(props.theme) + 1) % THEMES.length]!),
+  );
 
   return (
-    <button type="button" class="btn-icon" title={`Theme: ${mode}`} onClick={cycle}>
-      {THEME_ICON[mode]}
-    </button>
+    <select
+      class="theme-select"
+      title="Theme"
+      aria-label="Theme"
+      value={props.theme}
+      onChange={(e) => props.onChange((e.target as HTMLSelectElement).value as Theme)}
+    >
+      <optgroup label="Mode">
+        {THEME_MODES.map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+      </optgroup>
+      <optgroup label="Palette">
+        {THEME_NAMES.map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+      </optgroup>
+    </select>
   );
 }
 
-function IconButton(props: { id: ActionId; glyph: string }) {
+function IconButton(props: { id: ActionId; glyph: string; active?: boolean }) {
   const kb = bindingFor(props.id);
   const title = ACTIONS[props.id].label + (kb ? ` (${formatKeybinding(kb)})` : "");
   return (
     <button
       type="button"
-      class="btn-icon"
+      class={`btn-icon${props.active ? " active" : ""}`}
       title={title}
       aria-label={ACTIONS[props.id].label}
+      aria-pressed={props.active}
       onClick={() => runAction(props.id)}
     >
       {props.glyph}
     </button>
   );
+}
+
+/** The text line under `caret`, as a page-coordinate box spanning the doc's width: one
+ *  computed line-height tall (a code block's pitch lives on its <code>, prose's on the
+ *  stamped block), centered on the caret's glyph box. */
+function readingLineBox(doc: Element, el: Element, caret: { node: Node; offset: number }): Box | null {
+  const range = document.createRange();
+  range.setStart(caret.node, caret.offset);
+  range.collapse(true);
+  const glyph = range.getBoundingClientRect();
+  if (!glyph.height) return null;
+  const pitchOwner = el.closest("pre code") ?? el.closest("[data-source-line]") ?? el;
+  const lineHeight = parseFloat(getComputedStyle(pitchOwner).lineHeight);
+  const height = lineHeight > 0 ? lineHeight : glyph.height;
+  const docRect = doc.getBoundingClientRect();
+  return {
+    left: docRect.left + window.scrollX,
+    top: glyph.top + glyph.height / 2 - height / 2 + window.scrollY,
+    width: docRect.width,
+    height,
+  };
+}
+
+/** The reading line: chrome outside #doc, like the block boxes. It moves only on pointer
+ *  moves, so scrolling leaves it on the line it marked; a pointer off the text keeps the
+ *  last line; a doc reload or resize drops it rather than trusting stale geometry. */
+function ReadingLine(props: { docRef: RefObject<HTMLDivElement>; docHtml: string | undefined }) {
+  const [band, setBand] = useState<Box | null>(null);
+
+  useEffect(() => {
+    let frame = 0;
+    let at: { x: number; y: number } | null = null;
+    const sample = () => {
+      frame = 0;
+      const doc = props.docRef.current;
+      if (!at || !doc) return;
+      const caret = caretAt(at.x, at.y);
+      const node = caret?.node;
+      const el = node instanceof Element ? node : (node?.parentElement ?? null);
+      if (!caret || !el || el === doc || !doc.contains(el)) return;
+      const next = readingLineBox(doc, el, caret);
+      if (next) setBand(next);
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      at = { x: e.clientX, y: e.clientY };
+      if (!frame) frame = requestAnimationFrame(sample);
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  useEffect(() => setBand(null), [props.docHtml]);
+  useEffect(() => {
+    const clear = () => setBand(null);
+    window.addEventListener("resize", clear);
+    return () => window.removeEventListener("resize", clear);
+  }, []);
+
+  return band && <div class="reading-line" style={boxStyle(band)} />;
 }
 
 
@@ -275,13 +394,16 @@ function formatTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-/** onReload fires before each refetch, so callers can drop state anchored to the old DOM. */
-function useDocSync(onReload: () => void) {
+/** onReload fires before each refetch, so callers can drop state anchored to the old DOM;
+ *  onSettings fires when another tab wrote settings.json. */
+function useDocSync(onReload: () => void, onSettings: () => void) {
   const [doc, setDoc] = useState<DocResponse | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [reviewPending, setReviewPending] = useState(false);
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
+  const onSettingsRef = useRef(onSettings);
+  onSettingsRef.current = onSettings;
 
   const refreshAnnotations = async () => {
     const next = await getAnnotations();
@@ -307,6 +429,7 @@ function useDocSync(onReload: () => void) {
     events.addEventListener("update", reload);
     // Sidecar-only mutations: annotations refetch, no doc re-render or scroll dance.
     events.addEventListener("annotations", () => void refreshAnnotations());
+    events.addEventListener("settings", () => onSettingsRef.current());
     events.addEventListener("open", () => {
       if (firstOpen) firstOpen = false;
       else reload();
@@ -702,13 +825,15 @@ function App() {
   const [pendingInitial, setPendingInitial] = useState("");
   const [formSession, setFormSession] = useState(0);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
-  // Session-only, like the theme toggle: the server owns durable settings.
+  // Session-only: a per-review nicety, not a settings.json key.
   const [skipSubmitConfirm, setSkipSubmitConfirm] = useState(false);
+
+  const { settings, update: setSetting, refresh: refreshSettings } = useSettings(showToast);
 
   const { doc, annotations, refreshAnnotations, reviewPending } = useDocSync(() => {
     if (!draftRef.current) setPending(null);
     setOpenAnn(null);
-  });
+  }, refreshSettings);
   const annotationsRef = useRef(annotations);
   annotationsRef.current = annotations;
 
@@ -1008,6 +1133,7 @@ function App() {
   });
   useAction("copy-markdown", copyMarkdown);
   useAction("show-help", () => setHelpOpen((open) => !open));
+  useAction("toggle-reading-line", () => setSetting({ readingLine: !settings.readingLine }));
   useActionDispatcher();
 
   const submit = (body: NewAnnotation) => {
@@ -1120,6 +1246,7 @@ function App() {
 
   return (
     <>
+      {settings.readingLine && <ReadingLine docRef={docRef} docHtml={doc?.html} />}
       {hoverRect && (
         <div
           class="hover-bar"
@@ -1163,6 +1290,9 @@ function App() {
         onHoverEntry={setHoveredEntryId}
         editingId={editingEntryId}
         onEditingChange={setEditingEntryId}
+        theme={settings.theme}
+        onTheme={(theme) => setSetting({ theme })}
+        readingLine={settings.readingLine}
       />
       {toast && <div class="toast">{toast}</div>}
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
@@ -1281,6 +1411,9 @@ function Sidebar(props: {
   onHoverEntry: (id: string | null) => void;
   editingId: string | null;
   onEditingChange: (id: string | null) => void;
+  theme: Theme;
+  onTheme: (theme: Theme) => void;
+  readingLine: boolean;
 }) {
   const [adding, setAdding] = useState(false);
   const { editingId, onEditingChange } = props;
@@ -1338,7 +1471,8 @@ function Sidebar(props: {
         </div>
         <div class="sb-tools">
           <IconButton id="copy-markdown" glyph="⧉" />
-          <ThemeToggle />
+          <IconButton id="toggle-reading-line" glyph="▬" active={props.readingLine} />
+          <ThemePicker theme={props.theme} onChange={props.onTheme} />
           <IconButton id="show-help" glyph="?" />
         </div>
       </header>

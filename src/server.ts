@@ -2,7 +2,7 @@ import { existsSync, realpathSync, statSync, watch, type FSWatcher } from "node:
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { render } from "./render.ts";
 import { locate, reanchor } from "./anchor.ts";
-import { loadConfig } from "./config.ts";
+import { loadConfig, SettingsError, updateSettings } from "./config.ts";
 import { loadRegistry, saveRegistry } from "./registry.ts";
 import { readSidecar, sidecarPath, writeSidecar } from "./store.ts";
 import type {
@@ -69,9 +69,10 @@ function renderIndex(paths: string[]): string {
     <title>mdnote</title>
     <script>
       const config = ${config};
-      if (config.theme === "light" || config.theme === "dark") document.documentElement.dataset.theme = config.theme;
+      if (config.theme !== "system") document.documentElement.dataset.theme = config.theme;
     </script>
     <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/themes.css" />
   </head>
   <body>
     <div class="index">
@@ -155,8 +156,9 @@ export async function startServer(opts: {
   }
 
   /** `update` means the rendered doc may have changed (full reload); `annotations`
-   *  means only the sidecar did (clients refetch annotations alone). */
-  function broadcast(state: FileState, event: "update" | "annotations" = "update") {
+   *  means only the sidecar did (clients refetch annotations alone); `settings` means
+   *  settings.json changed under every file (clients refetch /api/settings). */
+  function broadcast(state: FileState, event: "update" | "annotations" | "settings" = "update") {
     for (const c of state.clients) {
       try {
         c.enqueue(encoder.encode(`event: ${event}\ndata: {}\n\n`));
@@ -281,8 +283,8 @@ export async function startServer(opts: {
         });
       }
 
-      if (req.method === "GET" && path === "/style.css") {
-        const f = Bun.file(join(WEB_DIR, "style.css"));
+      if (req.method === "GET" && (path === "/style.css" || path === "/themes.css")) {
+        const f = Bun.file(join(WEB_DIR, path.slice(1)));
         if (!(await f.exists())) return new Response("", { headers: { "content-type": "text/css" } });
         return new Response(f, { headers: { "content-type": "text/css; charset=utf-8" } });
       }
@@ -307,6 +309,21 @@ export async function startServer(opts: {
           if (!servable(file)) return json({ error: "unknown file" }, 404);
           register(file);
           return json({ file, url: pathToUrl(file) });
+        }
+
+        if (route === "/settings") {
+          if (req.method === "GET") return json(loadConfig());
+          if (req.method !== "PATCH") return new Response("not found", { status: 404 });
+          const body = await req.json().catch(() => null);
+          let config;
+          try {
+            config = updateSettings(body);
+          } catch (e) {
+            if (e instanceof SettingsError) return json({ error: e.message }, e.status);
+            throw e;
+          }
+          for (const state of files.values()) broadcast(state, "settings");
+          return json(config);
         }
 
         if (!qfile) return json({ error: "unknown file" }, 404);

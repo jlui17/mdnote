@@ -261,7 +261,15 @@ export function caretAt(x: number, y: number): { node: Node; offset: number } | 
     caretRangeFromPoint?: (x: number, y: number) => Range | null;
   };
   const pos = d.caretPositionFromPoint?.(x, y);
-  if (pos) return { node: pos.offsetNode, offset: pos.offset };
-  const range = d.caretRangeFromPoint?.(x, y);
-  return range ? { node: range.startContainer, offset: range.startOffset } : null;
+  const caret = pos
+    ? { node: pos.offsetNode, offset: pos.offset }
+    : (() => {
+        const range = d.caretRangeFromPoint?.(x, y);
+        return range ? { node: range.startContainer, offset: range.startOffset } : null;
+      })();
+  // Over a form control Chrome answers with the control itself and an offset into its
+  // value, which no Range method accepts as a boundary point; that is no caret.
+  if (!caret) return null;
+  const limit = caret.node.nodeType === Node.TEXT_NODE ? caret.node.textContent!.length : caret.node.childNodes.length;
+  return caret.offset <= limit ? caret : null;
 }

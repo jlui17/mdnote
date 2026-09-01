@@ -10,9 +10,9 @@
   --surface: light-dark(#eff1f5, #252629);
   --shadow: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.55));
   /* Depth hue cycle (gold, sky, plum): annotation nesting depth picks hue d mod 3.
-     Verified red-green-CVD-safe: pairwise Lab dE >= 24 under simulated deuteranopia
-     and protanopia in both themes; the cycle varies yellow<->blue plus lightness,
-     the channels red-green CVD preserves. Re-check any retune the same way. */
+     The cycle varies yellow<->blue plus lightness, the channels red-green CVD
+     preserves; tests/themes.test.ts pins the separation under simulated deuteranopia
+     and protanopia, here and for every named palette. */
   --hl-open: light-dark(#f3dfa8, #4d3a08);
   --hl-open-1: light-dark(#a4cdf2, #103353);
   --hl-open-2: light-dark(#cd85b7, #8a4680);
@@ -27,6 +27,8 @@
   --hl-draft: color-mix(in srgb, var(--accent) 14%, transparent);
   --hl-draft-edge: color-mix(in srgb, var(--accent) 55%, transparent);
   --hover-bar: color-mix(in srgb, var(--accent) 55%, transparent);
+  --reading-line: color-mix(in srgb, var(--accent) 10%, transparent);
+  --reading-line-edge: color-mix(in srgb, var(--accent) 40%, transparent);
   --hl-focus: light-dark(#eebe77, #7d5f0a);
   --code-keyword: light-dark(#8839ef, #c795e0);
   --code-string: light-dark(#40a02b, #8fb573);
@@ -274,6 +276,22 @@ body {
   background: var(--hover-bar);
 }
 
+/* Reading line (settings.json readingLine): one text line tall, behind the line under
+   the pointer. Chrome positioned from JS like the block boxes; it renders before them
+   so their washes paint over it. */
+.reading-line {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--reading-line);
+  box-shadow:
+    inset 0 1px var(--reading-line-edge),
+    inset 0 -1px var(--reading-line-edge);
+  transition:
+    top 80ms ease-out,
+    height 80ms ease-out;
+}
+
 /* Whole-block pending selection: one tinted box behind the block (z-index -1
    keeps it under the text without touching the doc island's DOM). */
 .block-pending,
@@ -470,6 +488,25 @@ body {
 .btn-icon:hover {
   color: var(--accent);
   background: var(--surface);
+}
+
+.btn-icon.active {
+  color: var(--accent);
+}
+
+.theme-select {
+  font: inherit;
+  font-size: 0.8rem;
+  max-width: 7.5rem;
+  padding: 0.2em 0.35em;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.theme-select:hover {
+  border-color: var(--accent);
 }
 
 .btn-primary {
