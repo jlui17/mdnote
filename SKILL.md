@@ -7,6 +7,8 @@ description: Review and apply annotations left on a Markdown file with mdnote (h
 
 Annotations live in a sidecar next to the file (`<file>.mdnote.json`), created via a browser UI. You never open the browser; you only use the CLI.
 
+`comments` and `clear` work with the server down too: they fall back to the sidecar. `mdnote` is a bun script installed to `~/.bun/bin`; if a non-interactive shell can't find `mdnote` or `bun`, prepend `~/.bun/bin` and the mise shims dir (`~/.local/share/mise/shims`) to `PATH`.
+
 ## 1. Start review (skip if already running)
 
 If the user hasn't already run it (ask if unclear), start the server:
