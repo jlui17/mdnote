@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isMarkdownPath, pathToUrl, startServer } from "../src/server.ts";
-import type { Annotation } from "../src/types.ts";
+import type { Annotation, AnnotationsResponse } from "../src/types.ts";
 
 let dir: string;
 let file: string;
@@ -173,6 +173,101 @@ describe("/api routes carry file identity", () => {
     expect("draft" in promoted).toBe(false);
 
     await fetch(`${base}/api/annotations/${created.id}${q}`, { method: "DELETE" });
+  });
+});
+
+describe("which match of a repeated anchor text", () => {
+  const sheLine = "she said she knew that she was late.";
+  const middleShe = {
+    lineRange: [3, 3],
+    columnRange: [10, 12],
+    textBefore: "she said ",
+    textAfter: " knew that she was late.",
+  };
+  let sf: string;
+  let q: string;
+
+  beforeAll(async () => {
+    sf = join(dir, "she.md");
+    q = `?file=${encodeURIComponent(sf)}`;
+    writeFileSync(sf, `# She\n\n${sheLine}\n`);
+    await fetch(`${base}/api/open${q}`, { method: "POST" });
+  });
+
+  const post = (body: unknown) =>
+    fetch(`${base}/api/annotations${q}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => r.json() as Promise<Annotation>);
+
+  const list = () =>
+    fetch(`${base}/api/annotations${q}`).then((r) => r.json() as Promise<AnnotationsResponse>);
+
+  test("POST with an occurrence stores the position, never the occurrence", async () => {
+    const created = await post({
+      lineRange: [3, 3],
+      anchorText: "she",
+      note: "which she?",
+      occurrence: { index: 1, total: 3 },
+    });
+    expect(created).toMatchObject(middleShe);
+    expect("occurrence" in created).toBe(false);
+
+    await fetch(`${base}/api/annotations/${created.id}${q}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note: "the middle one" }),
+    });
+    const stored = JSON.parse(readFileSync(sf + ".mdnote.json", "utf8")) as {
+      annotations: Annotation[];
+    };
+    expect(stored.annotations).toEqual([{ ...created, note: "the middle one" }]);
+  });
+
+  test("GET derives occurrences beside the annotations, keyed by id", async () => {
+    const { annotations, occurrences } = await list();
+    expect(annotations).toHaveLength(1);
+    expect("occurrence" in annotations[0]!).toBe(false);
+    expect(occurrences).toEqual({ [annotations[0]!.id]: { index: 1, total: 3 } });
+  });
+
+  test("an ambiguous POST and a block POST store no position and derive no occurrence", async () => {
+    const ambiguous = await post({ lineRange: [3, 3], anchorText: "she", note: "some she" });
+    const block = await post({
+      lineRange: [3, 3],
+      anchorText: sheLine,
+      note: "whole line",
+      block: true,
+      occurrence: { index: 0, total: 1 },
+    });
+    for (const a of [ambiguous, block]) {
+      expect(a.lineRange).toEqual([3, 3]);
+      for (const key of ["columnRange", "textBefore", "textAfter"]) expect(key in a).toBe(false);
+    }
+    expect(Object.keys((await list()).occurrences)).toHaveLength(1);
+  });
+
+  test("a sidecar written before positions existed loads and serves unchanged", async () => {
+    const of = join(dir, "old.md");
+    writeFileSync(of, `${sheLine}\n`);
+    const old: Annotation = {
+      id: "old-1",
+      lineRange: [1, 1],
+      anchorText: "she",
+      note: "from before",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      status: "open",
+    };
+    writeFileSync(of + ".mdnote.json", JSON.stringify({ version: 1, annotations: [old] }));
+    await fetch(`${base}/api/open?file=${encodeURIComponent(of)}`, { method: "POST" });
+    const res = await fetch(`${base}/api/annotations?file=${encodeURIComponent(of)}`);
+    expect(res.status).toBe(200);
+    expect((await res.json()) as AnnotationsResponse).toEqual({
+      annotations: [old],
+      reviewPending: false,
+      occurrences: {},
+    });
   });
 });
 
@@ -461,6 +556,32 @@ describe("review wait and submit", () => {
     const rounds = new Map(envelope2.annotations.map((a) => [a.id, a.round]));
     expect(rounds.get(first.id)).toBe(1);
     expect(rounds.get(second.id)).toBe(2);
+  });
+
+  test("the envelope carries an annotation's position and no occurrence", async () => {
+    const pf = join(dir, "position.md");
+    writeFileSync(pf, "she said she knew\n");
+    await fetch(api(base, pf, "/open"), { method: "POST" });
+    const created = await post(pf, {
+      lineRange: [1, 1],
+      anchorText: "she",
+      note: "second one",
+      occurrence: { index: 1, total: 2 },
+    });
+
+    const waitP = fetch(api(base, pf, "/wait")).then((r) => r.text());
+    await pendingIs(pf, true);
+    await fetch(api(base, pf, "/submit"), { method: "POST" });
+    const envelope = JSON.parse((await waitP).trim()) as { annotations: Annotation[] };
+    expect(envelope.annotations).toEqual([
+      {
+        ...created,
+        columnRange: [10, 12],
+        textBefore: "she said ",
+        textAfter: " knew",
+        round: 1,
+      },
+    ]);
   });
 
   test("clearing annotations does not reset round numbering", async () => {

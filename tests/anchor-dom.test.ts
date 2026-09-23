@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { sameNormalizedText, separateBoxes, type Box } from "../web/anchor-dom.ts";
+import {
+  nthMatch,
+  occurrenceAt,
+  sameNormalizedText,
+  separateBoxes,
+  type Box,
+} from "../web/anchor-dom.ts";
 
 describe("sameNormalizedText", () => {
   test("exact match", () => {
@@ -20,6 +26,57 @@ describe("sameNormalizedText", () => {
 
   test("text spanning two different blocks does not match either alone", () => {
     expect(sameNormalizedText("item one", "item one item two")).toBe(false);
+  });
+});
+
+describe("nthMatch", () => {
+  const text = "she said she knew that she was late";
+
+  test("without an occurrence it is the first match", () => {
+    expect(nthMatch(text, "she")).toBe(0);
+    expect(nthMatch(text, "knew")).toBe(13);
+  });
+
+  test("an occurrence names its match by index", () => {
+    expect(nthMatch(text, "she", { index: 0, total: 3 })).toBe(0);
+    expect(nthMatch(text, "she", { index: 1, total: 3 })).toBe(9);
+    expect(nthMatch(text, "she", { index: 2, total: 3 })).toBe(23);
+  });
+
+  test("an occurrence whose total disagrees with this text names nothing", () => {
+    expect(nthMatch(text, "she", { index: 1, total: 2 })).toBeUndefined();
+    expect(nthMatch(text, "she", { index: 1, total: 4 })).toBeUndefined();
+  });
+
+  test("overlapping matches each count, as they do on the server", () => {
+    expect(nthMatch("aaaa", "aa", { index: 2, total: 3 })).toBe(2);
+  });
+
+  test("no match is undefined", () => {
+    expect(nthMatch(text, "he said he")).toBeUndefined();
+  });
+});
+
+describe("occurrenceAt", () => {
+  const block = "she said\n  she knew that she was late";
+
+  test("names the match starting where the selection starts", () => {
+    expect(occurrenceAt(block, "she", 0)).toEqual({ index: 0, total: 3 });
+    expect(occurrenceAt(block, "she", 11)).toEqual({ index: 1, total: 3 });
+    expect(occurrenceAt(block, "she", 25)).toEqual({ index: 2, total: 3 });
+  });
+
+  test("a selection starting in the whitespace before its match still names it", () => {
+    expect(occurrenceAt(block, " she", 8)).toEqual({ index: 1, total: 3 });
+  });
+
+  test("whitespace runs in the block do not shift the count", () => {
+    expect(occurrenceAt(block, "said she", 4)).toEqual({ index: 0, total: 1 });
+  });
+
+  test("no match at or after the selection start is undefined", () => {
+    expect(occurrenceAt(block, "she", 26)).toBeUndefined();
+    expect(occurrenceAt(block, "he left", 0)).toBeUndefined();
   });
 });
 

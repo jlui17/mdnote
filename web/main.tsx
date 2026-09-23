@@ -3,9 +3,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/ho
 import type {
   Annotation,
   AnnotationPatch,
+  AnnotationsResponse,
   AnnotationStatus,
   DocResponse,
   NewAnnotation,
+  Occurrence,
   ResolvedConfig,
   SettingsPatch,
   Theme,
@@ -86,10 +88,10 @@ async function getDoc(): Promise<DocResponse | null> {
   return res.ok ? ((await res.json()) as DocResponse) : null;
 }
 
-async function getAnnotations(): Promise<{ annotations: Annotation[]; reviewPending: boolean }> {
+async function getAnnotations(): Promise<AnnotationsResponse> {
   const res = await fetch(api("/annotations"));
-  if (!res.ok) return { annotations: [], reviewPending: false };
-  return (await res.json()) as { annotations: Annotation[]; reviewPending: boolean };
+  if (!res.ok) return { annotations: [], reviewPending: false, occurrences: {} };
+  return (await res.json()) as AnnotationsResponse;
 }
 
 async function sendJson(route: string, method: string, body: unknown): Promise<void> {
@@ -507,6 +509,7 @@ function useDocSync(onReload: () => void, onSettings: () => void) {
   const [doc, setDoc] = useState<DocResponse | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [reviewPending, setReviewPending] = useState(false);
+  const [occurrences, setOccurrences] = useState<Record<string, Occurrence>>({});
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
   const onSettingsRef = useRef(onSettings);
@@ -516,6 +519,7 @@ function useDocSync(onReload: () => void, onSettings: () => void) {
     const next = await getAnnotations();
     setAnnotations(next.annotations);
     setReviewPending(next.reviewPending);
+    setOccurrences(next.occurrences);
   };
 
   useEffect(() => {
@@ -544,7 +548,7 @@ function useDocSync(onReload: () => void, onSettings: () => void) {
     return () => events.close();
   }, []);
 
-  return { doc, annotations, refreshAnnotations, reviewPending };
+  return { doc, annotations, refreshAnnotations, reviewPending, occurrences };
 }
 
 type TextLayout = { id: string; range: Range; status: AnnotationStatus; depth: number };
@@ -564,6 +568,7 @@ type BlockLayout = {
 function useAnnotationLayout(
   docRef: RefObject<HTMLDivElement>,
   saved: Annotation[],
+  occurrences: Record<string, Occurrence>,
   docHtml: string | undefined,
 ) {
   const [layout, setLayout] = useState<{ texts: TextLayout[]; blocks: BlockLayout[] }>({
@@ -584,7 +589,7 @@ function useAnnotationLayout(
         range.setEndAfter(els[els.length - 1]!);
         resolved.push({ a, range, els });
       } else {
-        const range = findRange(container!, a.anchorText, a.lineRange);
+        const range = findRange(container!, a.anchorText, a.lineRange, occurrences[a.id]);
         if (range) resolved.push({ a, range, els: null });
       }
     }
@@ -605,7 +610,7 @@ function useAnnotationLayout(
         nestHeight: heights.get(r)!,
       })),
     });
-  }, [saved, docHtml]);
+  }, [saved, occurrences, docHtml]);
 
   return layout;
 }
@@ -614,6 +619,7 @@ function useHighlights(
   texts: TextLayout[],
   docRef: RefObject<HTMLDivElement>,
   drafts: Annotation[],
+  occurrences: Record<string, Occurrence>,
   docHtml: string | undefined,
   pending: SelectionAnchor | null,
   focus: { id: string; tick: number } | null,
@@ -652,13 +658,13 @@ function useHighlights(
       // A draft without a lineRange can't rebuild a resume anchor; painting it
       // would advertise a permanently dead click target.
       if (!a.anchorText || a.block || !a.lineRange) continue;
-      const range = findRange(container, a.anchorText, a.lineRange);
+      const range = findRange(container, a.anchorText, a.lineRange, occurrences[a.id]);
       if (!range) continue;
       draftRangesRef.current.push({ id: a.id, range });
       ranges.push(range);
     }
     setHighlight("mdnote-draft", ranges, DRAFT_PRIORITY);
-  }, [drafts, docHtml]);
+  }, [drafts, occurrences, docHtml]);
 
   useEffect(() => {
     setHighlight(
@@ -938,7 +944,7 @@ function App() {
 
   const { settings, update: setSetting, refresh: refreshSettings } = useSettings(showToast);
 
-  const { doc, annotations, refreshAnnotations, reviewPending } = useDocSync(() => {
+  const { doc, annotations, refreshAnnotations, reviewPending, occurrences } = useDocSync(() => {
     if (!draftRef.current) setPending(null);
     setOpenAnn(null);
   }, refreshSettings);
@@ -951,11 +957,12 @@ function App() {
     () => annotations.filter((a) => a.draft && a.id !== pendingDraftId),
     [annotations, pendingDraftId],
   );
-  const layout = useAnnotationLayout(docRef, saved, doc?.html);
+  const layout = useAnnotationLayout(docRef, saved, occurrences, doc?.html);
   const { rangesRef, draftRangesRef } = useHighlights(
     layout.texts,
     docRef,
     inactiveDrafts,
+    occurrences,
     doc?.html,
     pending,
     focus,
@@ -1015,6 +1022,7 @@ function App() {
       note: "",
       draft: true,
       ...(anchor.blocks ? { block: true as const } : {}),
+      occurrence: anchor.occurrence,
     }).then((a) => {
       if (a) handle.id = a.id;
       if (a && draftRef.current === handle) setPendingDraftId(a.id);
@@ -1028,6 +1036,7 @@ function App() {
   /** Re-derives a draft's SelectionAnchor against the current DOM. */
   const draftAnchor = (
     a: Pick<Annotation, "anchorText" | "lineRange" | "block">,
+    occurrence: Occurrence | undefined,
   ): SelectionAnchor | null => {
     const container = docRef.current;
     const { anchorText, lineRange } = a;
@@ -1036,8 +1045,10 @@ function App() {
       const els = findBlocks(container, anchorText, lineRange);
       return els ? blockAnchor(els) : null;
     }
-    const range = findRange(container, anchorText, lineRange);
-    return range ? { lineRange, anchorText, rect: range.getBoundingClientRect(), range } : null;
+    const range = findRange(container, anchorText, lineRange, occurrence);
+    return range
+      ? { lineRange, anchorText, rect: range.getBoundingClientRect(), range, occurrence }
+      : null;
   };
 
   /** True when the gesture is handled — the form opened, or was already open on this id. */
@@ -1045,7 +1056,7 @@ function App() {
     // Already the open form's draft (its visuals can flash as resumable between the
     // create's persist and its 201): resuming would cancel-delete it under the form.
     if (draftRef.current?.id === a.id) return true;
-    const anchor = draftAnchor(a);
+    const anchor = draftAnchor(a, occurrences[a.id]);
     if (!anchor) return false;
     cancelPending();
     draftRef.current = { id: a.id, idPromise: Promise.resolve(a.id), ops: Promise.resolve() };
@@ -1119,6 +1130,7 @@ function App() {
           anchorText: p.anchorText,
           note,
           ...(p.blocks ? { block: true as const } : {}),
+          occurrence: p.occurrence,
         });
       await refreshAnnotations();
     });
@@ -1156,7 +1168,7 @@ function App() {
           lineRange: p.lineRange,
           ...(p.blocks ? { block: true as const } : {}),
         };
-    const anchor = a ? draftAnchor(a) : null;
+    const anchor = a ? draftAnchor(a, h.id ? occurrences[h.id] : p.occurrence) : null;
     if (anchor) {
       setPending(anchor);
       return;

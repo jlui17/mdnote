@@ -1,15 +1,17 @@
 import { existsSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import { render } from "./render.ts";
-import { locate, reanchor } from "./anchor.ts";
+import { render, stampedBlocks } from "./render.ts";
+import { locate, occurrenceOf, reanchor } from "./anchor.ts";
 import { loadConfig, SettingsError, updateSettings } from "./config.ts";
 import { loadRegistry, saveRegistry } from "./registry.ts";
 import { readSidecar, sidecarPath, writeSidecar } from "./store.ts";
 import type {
   Annotation,
   AnnotationPatch,
+  AnnotationsResponse,
   DocResponse,
   NewAnnotation,
+  Occurrence,
   ReviewEnvelope,
   Sidecar,
 } from "./types.ts";
@@ -405,28 +407,41 @@ export async function startServer(opts: {
     }
 
     if (path === "/annotations") {
-      if (req.method === "GET")
-        return json({
-          annotations: readSidecar(file).annotations,
+      if (req.method === "GET") {
+        const { annotations } = readSidecar(file);
+        const source = await readSource().catch(() => "");
+        const blocks = stampedBlocks(source);
+        const occurrences: Record<string, Occurrence> = {};
+        for (const a of annotations) {
+          const occurrence = occurrenceOf(source, a, blocks);
+          if (occurrence) occurrences[a.id] = occurrence;
+        }
+        const body: AnnotationsResponse = {
+          annotations,
           reviewPending: state.waiters.size > 0,
-        });
+          occurrences,
+        };
+        return json(body);
+      }
 
       if (req.method === "POST") {
         const body = (await req.json()) as NewAnnotation;
-        let lineRange = body.lineRange;
-        if (body.anchorText) {
-          const found = locate(await readSource(), body.anchorText, lineRange ?? undefined);
-          if (found) lineRange = found;
-        }
+        const found = body.anchorText
+          ? locate(await readSource(), body.anchorText, {
+              lineRange: body.lineRange ?? undefined,
+              occurrence: body.occurrence,
+            })
+          : null;
         const created: Annotation = {
           id: crypto.randomUUID(),
-          lineRange: body.anchorText ? lineRange : null,
+          lineRange: body.anchorText ? (found?.lineRange ?? body.lineRange) : null,
           anchorText: body.anchorText,
           note: body.note,
           createdAt: new Date().toISOString(),
           status: "open",
           ...(body.block && body.anchorText ? { block: true as const } : {}),
           ...(body.draft && body.anchorText ? { draft: true as const } : {}),
+          ...(found && !body.block ? found : {}),
         };
         const sidecar = readSidecar(file);
         sidecar.annotations.push(created);

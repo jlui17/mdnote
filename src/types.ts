@@ -31,6 +31,16 @@ export interface Annotation {
   lineRange: [number, number] | null;
   /** Exact selected source-adjacent text; re-anchoring matches against this. Null for a doc-wide note. */
   anchorText: string | null;
+  /** Where in `lineRange` the anchored span sits: the start column on line `lineRange[0]`,
+   *  the end column on line `lineRange[1]`, 1-based inclusive, in UTF-16 code units (JS
+   *  string indices). Text annotations only, and always together with `textBefore` and
+   *  `textAfter`; all three are absent when the server could not tell matches of
+   *  `anchorText` apart, and on sidecars written before they existed. */
+  columnRange?: [number, number];
+  /** Up to 24 source characters directly before the span, clipped to its first line. */
+  textBefore?: string;
+  /** Up to 24 source characters directly after the span, clipped to its last line. */
+  textAfter?: string;
   note: string;
   createdAt: string;
   status: AnnotationStatus;
@@ -59,6 +69,14 @@ export interface AnnotationPatch {
   draft?: false;
 }
 
+/** Which match of an anchor text a selection is, inside its innermost stamped block:
+ *  0-based `index` out of `total` matches, overlapping ones counted. Wire-only, in both
+ *  directions; the sidecar persists `columnRange` instead. */
+export interface Occurrence {
+  index: number;
+  total: number;
+}
+
 /** Body of POST /annotations. Server assigns id, createdAt, status. */
 export interface NewAnnotation {
   lineRange: [number, number] | null;
@@ -66,6 +84,16 @@ export interface NewAnnotation {
   note: string;
   block?: true;
   draft?: true;
+  occurrence?: Occurrence;
+}
+
+/** Body of GET /annotations. */
+export interface AnnotationsResponse {
+  annotations: Annotation[];
+  /** True while an `mdnote wait` is pending on this file. */
+  reviewPending: boolean;
+  /** Per annotation id, which match its `columnRange` is; absent for an id without one. */
+  occurrences: Record<string, Occurrence>;
 }
 
 /** What `mdnote wait` prints on submit. Empty annotations = approved as-is. */

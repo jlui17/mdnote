@@ -99,6 +99,16 @@ for (const rule of ["fence", "code_block"] as const) {
   };
 }
 
+/** The 1-based inclusive line range of every block `render()` stamps in the DOM.
+ *  `sourceLines` also sets the attribute on tokens that render no element of their own:
+ *  the `inline` content token, and a tight list item's hidden paragraph. */
+export function stampedBlocks(source: string): [number, number][] {
+  return md
+    .parse(source, {})
+    .filter((t) => t.attrIndex("data-source-line") >= 0 && t.type !== "inline" && !t.hidden)
+    .map((t) => [t.map![0] + 1, t.map![1]]);
+}
+
 export function render(source: string): string {
   return md.render(source);
 }

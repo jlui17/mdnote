@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { render } from "../src/render.ts";
+import { render, stampedBlocks } from "../src/render.ts";
 
 /** Every data-source-line value in document order. */
 function stamps(html: string): string[] {
@@ -169,5 +169,51 @@ describe("render", () => {
     const html = render("a **bold** word\n");
     expect(html).toContain("<strong>bold</strong>");
     expect(stamps(html)).toEqual(["1-1"]);
+  });
+});
+
+describe("stampedBlocks", () => {
+  const rich = [
+    "# Heading", // 1
+    "", // 2
+    "A soft-wrapped paragraph", // 3
+    "running over three", // 4
+    "source lines.", // 5
+    "", // 6
+    "- tight one", // 7
+    "  - nested tight", // 8
+    "  - nested two", // 9
+    "- tight two", // 10
+    "", // 11
+    "1. loose one", // 12
+    "", // 13
+    "2. loose two", // 14
+    "", // 15
+    "> quoted paragraph", // 16
+    "> second line", // 17
+    "", // 18
+    "| a | b |", // 19
+    "| - | - |", // 20
+    "| c | d |", // 21
+    "", // 22
+    "```ts", // 23
+    "const x = 1;", // 24
+    "```", // 25
+    "", // 26
+    "<div>", // 27
+    "html block", // 28
+    "</div>", // 29
+    "", // 30
+    "    indented code", // 31
+    "", // 32
+    "---", // 33
+    "", // 34
+  ].join("\n");
+
+  test("the ranges are exactly the stamps that reach the DOM", () => {
+    const ranges = stampedBlocks(rich).map(([start, end]) => `${start}-${end}`);
+    expect(ranges.sort()).toEqual(stamps(render(rich)).sort());
+    expect(new Set(ranges)).toContain("8-8");
+    expect(new Set(ranges)).toContain("27-29");
   });
 });

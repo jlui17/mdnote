@@ -1,3 +1,5 @@
+import type { Occurrence } from "../src/types.ts";
+
 export interface Segment {
   node: Text;
   start: number;
@@ -13,6 +15,9 @@ export interface SelectionAnchor {
   /** Set for whole-block anchors: the stamped elements the anchor covers (a consecutive
    *  sibling run, usually one), so pending paints the block box, not the text. */
   blocks?: Element[];
+  /** Set when the selection sits inside one stamped block: which match of `anchorText`
+   *  in that block it is, for the server to resolve the source position from. */
+  occurrence?: Occurrence;
 }
 
 export interface Box {
@@ -95,13 +100,51 @@ function normalize(raw: string): { norm: string; map: number[] } {
   return { norm, map };
 }
 
-export function locateSegments(root: Node, anchorText: string): Segment[] | null {
+/** Overlapping matches each count, as they do in the server's `occurrences()`: an
+ *  `Occurrence` has to mean the same match on both sides. */
+function matchStarts(haystack: string, needle: string): number[] {
+  const out: number[] = [];
+  for (let i = haystack.indexOf(needle); i !== -1; i = haystack.indexOf(needle, i + 1)) out.push(i);
+  return out;
+}
+
+/** Where the match of `needle` that `occurrence` names starts: undefined when this text's
+ *  match count is not the occurrence's total. Without an occurrence, the first match. */
+export function nthMatch(
+  haystack: string,
+  needle: string,
+  occurrence?: Occurrence,
+): number | undefined {
+  const hits = matchStarts(haystack, needle);
+  if (!occurrence) return hits[0];
+  return hits.length === occurrence.total ? hits[occurrence.index] : undefined;
+}
+
+/** Which match of `anchorText` in a block's text a selection starting at raw offset
+ *  `selectionStart` is: the first one at or after it, since a selection may lead with
+ *  whitespace its anchor text drops. */
+export function occurrenceAt(
+  blockText: string,
+  anchorText: string,
+  selectionStart: number,
+): Occurrence | undefined {
+  const { norm, map } = normalize(blockText);
+  const hits = matchStarts(norm, normalize(anchorText).norm);
+  const index = hits.findIndex((hit) => map[hit]! >= selectionStart);
+  return index === -1 ? undefined : { index, total: hits.length };
+}
+
+export function locateSegments(
+  root: Node,
+  anchorText: string,
+  occurrence?: Occurrence,
+): Segment[] | null {
   const target = normalize(anchorText).norm;
   if (!target) return null;
   const { nodes, starts, text } = textNodes(root);
   const { norm, map } = normalize(text);
-  const hit = norm.indexOf(target);
-  if (hit < 0) return null;
+  const hit = nthMatch(norm, target, occurrence);
+  if (hit === undefined) return null;
   const rawStart = map[hit]!;
   const rawEnd = map[hit + target.length - 1]! + 1;
 
@@ -131,16 +174,25 @@ function candidateBlocks(doc: Element, lineRange: [number, number] | null): Elem
   return out.map((o) => o.el);
 }
 
+/** With an `occurrence`, the range is that match within the innermost block holding
+ *  `lineRange[0]`, the block the server counted in; when the block's own count disagrees
+ *  (or there is no occurrence) it is the first match, searched innermost block first. */
 export function findRange(
   doc: Element,
   anchorText: string,
   lineRange: [number, number] | null,
+  occurrence?: Occurrence,
 ): Range | null {
   let segs: Segment[] | null = null;
-  for (const block of candidateBlocks(doc, lineRange)) {
-    segs = locateSegments(block, anchorText);
-    if (segs) break;
+  if (occurrence && lineRange) {
+    const block = candidateBlocks(doc, [lineRange[0], lineRange[0]])[0];
+    if (block) segs = locateSegments(block, anchorText, occurrence);
   }
+  if (!segs)
+    for (const block of candidateBlocks(doc, lineRange)) {
+      segs = locateSegments(block, anchorText);
+      if (segs) break;
+    }
   segs ??= locateSegments(doc, anchorText);
   if (!segs) return null;
   const first = segs[0]!;
@@ -216,11 +268,10 @@ export function blockAnchor(blocks: Element[]): SelectionAnchor | null {
   };
 }
 
-function nearestStamp(doc: Element, node: Node | null): [number, number] | null {
+function nearestStamped(doc: Element, node: Node | null): Element | null {
   let el: Element | null = node instanceof Element ? node : (node?.parentElement ?? null);
   while (el && doc.contains(el)) {
-    const parsed = parseStamp(el);
-    if (parsed) return parsed;
+    if (parseStamp(el)) return el;
     el = el.parentElement;
   }
   return null;
@@ -242,16 +293,26 @@ export function selectionAnchor(doc: Element): SelectionAnchor | null {
     const promoted = r.length ? blockAnchor(r) : null;
     if (promoted && sameNormalizedText(promoted.anchorText, anchorText)) return promoted;
   }
-  const a = nearestStamp(doc, range.startContainer);
-  const b = nearestStamp(doc, range.endContainer);
+  const startBlock = nearestStamped(doc, range.startContainer);
+  const endBlock = nearestStamped(doc, range.endContainer);
+  const a = startBlock && parseStamp(startBlock);
+  const b = endBlock && parseStamp(endBlock);
   if (!a && !b) return null;
   const start = a ?? b!;
   const end = b ?? a!;
+  let occurrence: Occurrence | undefined;
+  if (startBlock && startBlock === endBlock) {
+    const before = document.createRange();
+    before.selectNodeContents(startBlock);
+    before.setEnd(range.startContainer, range.startOffset);
+    occurrence = occurrenceAt(textNodes(startBlock).text, anchorText, before.toString().length);
+  }
   return {
     lineRange: [Math.min(start[0], end[0]), Math.max(start[1], end[1])],
     anchorText,
     rect: range.getBoundingClientRect(),
     range: range.cloneRange(),
+    occurrence,
   };
 }
 

@@ -37,6 +37,8 @@ Returns `{file, annotations}`. Each annotation:
 
 - `lineRange`: `[start, end]`, 1-based inclusive source lines (`null` for a doc-wide note)
 - `anchorText`: exact selected text (`null` for a doc-wide note)
+- `columnRange`: `[start, end]`, 1-based inclusive columns of the selected span: `start` is on line `lineRange[0]`, `end` is on line `lineRange[1]`
+- `textBefore`, `textAfter`: up to 24 source characters directly before and after the span, from the span's own first and last line (empty at a line edge)
 - `note`: the instruction
 - `status`: `open` | `stale`
 
@@ -47,6 +49,8 @@ Only act on `status: "open"`.
 The `note` is a free-form instruction about the anchored span: "make this punchier" means revise it, "remove" means delete it, and so on. When `anchorText` is `null`, the note is doc-wide — apply it across the whole file.
 
 Use `lineRange` to jump to the spot; confirm you have the right span by matching `anchorText` (lines may have shifted from earlier edits in this same pass — re-check rather than trusting stale line numbers).
+
+`columnRange`, `textBefore`, and `textAfter` come together, on text selections only, and say which match the user selected when a line holds `anchorText` more than once. The source reads `textBefore + <span> + textAfter`, starting on line `lineRange[0]`. `anchorText` is the rendered text, so the source span can differ from it (a `**` or a line break inside); when `anchorText` does appear literally, search for `textBefore + anchorText + textAfter`. If that string is not found or not unique, slice by `columnRange`: a one-line span is characters `columnRange[0] - 1` up to but not including `columnRange[1]` of line `lineRange[0]`, counted as JS string indices (UTF-16 code units); a longer span runs from that start column through column `columnRange[1]` of line `lineRange[1]`. When the three fields are absent, mdnote could not tell the matches apart: go by `lineRange` and `anchorText` alone, and ask the user if the line is ambiguous.
 
 ## 4. Clear addressed annotations
 

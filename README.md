@@ -115,6 +115,9 @@ interface Annotation {
   id: string;
   lineRange: [number, number] | null; // 1-based inclusive source lines; null for a doc-wide note
   anchorText: string | null;          // exact selected text; null for a doc-wide note
+  columnRange?: [number, number];     // 1-based inclusive columns: start on line lineRange[0], end on line lineRange[1]; absent when matches of anchorText couldn't be told apart
+  textBefore?: string;                // up to 24 source characters directly before the span, on its first line; present with columnRange
+  textAfter?: string;                 // up to 24 source characters directly after the span, on its last line; present with columnRange
   note: string;
   createdAt: string;
   status: AnnotationStatus;

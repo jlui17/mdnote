@@ -1,4 +1,4 @@
-import type { Annotation } from "./types.ts";
+import type { Annotation, Occurrence } from "./types.ts";
 
 const SKIP = new Set([..."*_`~[]()#>-"]);
 
@@ -49,53 +49,147 @@ function lineAt(starts: number[], offset: number): number {
   return lo + 1;
 }
 
-function pick<T>(
-  candidates: T[],
-  starts: number[],
-  hintRange: [number, number] | undefined,
-  offsetOf: (c: T) => number,
-): T {
-  if (!hintRange || candidates.length === 1) return candidates[0] as T;
-  let best = candidates[0] as T;
-  let bestDist = Infinity;
-  for (const c of candidates) {
-    const dist = Math.abs(lineAt(starts, offsetOf(c)) - hintRange[0]);
-    if (dist < bestDist) {
-      best = c;
-      bestDist = dist;
-    }
-  }
-  return best;
+/** A match in source offsets, both ends inclusive. */
+type Span = [number, number];
+
+function exactSpans(source: string, anchorText: string): Span[] {
+  const trimmed = anchorText.trim();
+  if (trimmed.length === 0) return [];
+  return occurrences(source, trimmed).map((at) => [at, at + trimmed.length - 1]);
 }
 
-export function locate(
+function normalizedSpans(source: string, anchorText: string): Span[] {
+  const hay = normalize(source);
+  const needle = normalize(anchorText).text;
+  if (needle.length === 0) return [];
+  return occurrences(hay.text, needle).map((hit) => [
+    hay.map[hit]!,
+    hay.map[hit + needle.length - 1]!,
+  ]);
+}
+
+/** Every place the anchor text may sit, in source order: the exact matches, plus the
+ *  normalized matches no exact one contains (the same text crossing markup or a soft
+ *  wrap). An anchor holding SKIP characters normalizes lossily ("(x)" would match every
+ *  bare "x"), so its normalized matches count only when it has no exact one. */
+function candidateSpans(source: string, anchorText: string): Span[] {
+  const exact = exactSpans(source, anchorText);
+  if (exact.length > 0 && [...anchorText].some((c) => SKIP.has(c))) return exact;
+  const crossing = normalizedSpans(source, anchorText).filter(
+    (n) => !exact.some((e) => e[0] <= n[0] && n[1] <= e[1]),
+  );
+  return [...exact, ...crossing].sort((a, b) => a[0] - b[0]);
+}
+
+const CONTEXT_CHARS = 24;
+
+/** Where `locate` found the anchor text. The column fields (see `Annotation`) are absent
+ *  when several matches tied and no hint could tell them apart: no position is better
+ *  than a wrong one. */
+export interface Located {
+  lineRange: [number, number];
+  columnRange?: [number, number];
+  textBefore?: string;
+  textAfter?: string;
+}
+
+/** What is known about where the match should be: the selection's block lines plus its
+ *  `occurrence` when creating, the annotation's previous position when re-anchoring. */
+export type LocateHint = Partial<Located> & { occurrence?: Occurrence };
+
+function position(source: string, starts: number[], [start, end]: Span): Required<Located> {
+  const lineRange: [number, number] = [lineAt(starts, start), lineAt(starts, end)];
+  const lineStart = starts[lineRange[0] - 1]!;
+  const newline = source.indexOf("\n", end);
+  const lineEnd = newline === -1 ? source.length : newline;
+  return {
+    lineRange,
+    columnRange: [start - lineStart + 1, end - starts[lineRange[1] - 1]! + 1],
+    textBefore: source.slice(Math.max(lineStart, start - CONTEXT_CHARS), start),
+    textAfter: source.slice(end + 1, Math.min(lineEnd, end + 1 + CONTEXT_CHARS)),
+  };
+}
+
+function startsWithin(starts: number[], lines: [number, number]): (span: Span) => boolean {
+  return ([start]) => {
+    const line = lineAt(starts, start);
+    return line >= lines[0] && line <= lines[1];
+  };
+}
+
+/** The candidate the hint ranks best: nearest to the hinted lines (a range, since on
+ *  create it is the whole block: any start line inside it is distance 0), then agreeing
+ *  context (both sides beat one beats none), then nearest start column; the earliest
+ *  wins what is left, and `tied` says the hint had nothing to separate it from another. */
+function pick(
   source: string,
-  anchorText: string,
-  hintRange?: [number, number],
-): [number, number] | null {
+  starts: number[],
+  spans: Span[],
+  hint: LocateHint,
+): { at: Required<Located>; tied: boolean } {
+  const rank = (at: Required<Located>): number[] => [
+    hint.lineRange
+      ? Math.max(hint.lineRange[0] - at.lineRange[0], at.lineRange[0] - hint.lineRange[1], 0)
+      : 0,
+    -(Number(at.textBefore === hint.textBefore) + Number(at.textAfter === hint.textAfter)),
+    hint.columnRange ? Math.abs(at.columnRange[0] - hint.columnRange[0]) : 0,
+  ];
+  let best = position(source, starts, spans[0]!);
+  let bestRank = rank(best);
+  let tied = false;
+  for (const span of spans.slice(1)) {
+    const at = position(source, starts, span);
+    const r = rank(at);
+    const i = r.findIndex((v, k) => v !== bestRank[k]);
+    if (i === -1) tied = true;
+    else if (r[i]! < bestRank[i]!) {
+      best = at;
+      bestRank = r;
+      tied = false;
+    }
+  }
+  return { at: best, tied };
+}
+
+export function locate(source: string, anchorText: string, hint: LocateHint = {}): Located | null {
   const starts = lineStarts(source);
 
-  const trimmed = anchorText.trim();
-  if (trimmed.length === 0) return null;
+  const spans = candidateSpans(source, anchorText);
 
-  const exact = occurrences(source, trimmed);
-  if (exact.length > 0) {
-    const at = pick(exact, starts, hintRange, (o) => o);
-    return [lineAt(starts, at), lineAt(starts, at + trimmed.length - 1)];
+  if (hint.lineRange && hint.occurrence) {
+    const inBlock = spans.filter(startsWithin(starts, hint.lineRange));
+    const span = inBlock[hint.occurrence.index];
+    if (span && inBlock.length === hint.occurrence.total) return position(source, starts, span);
   }
 
-  const hay = normalize(source);
-  const needle = normalize(anchorText);
-  if (needle.text.length === 0) return null;
+  if (spans.length === 0) return null;
+  const { at, tied } = pick(source, starts, spans, hint);
+  return tied ? { lineRange: at.lineRange } : at;
+}
 
-  const hits = occurrences(hay.text, needle.text);
-  if (hits.length === 0) return null;
-
-  const start = pick(hits, starts, hintRange, (h) => hay.map[h]!);
-  return [
-    lineAt(starts, hay.map[start]!),
-    lineAt(starts, hay.map[start + needle.text.length - 1]!),
-  ];
+/** Which match of its anchor text `a` is within its innermost stamped block, for the
+ *  client to paint: the stored column turned back into an `Occurrence`, counted over the
+ *  same candidates `locate` resolves an occurrence against, so the two round-trip.
+ *  `blocks` are the document's stamped line ranges. Null when `a` has no column or no
+ *  match starts there. */
+export function occurrenceOf(
+  source: string,
+  a: Annotation,
+  blocks: [number, number][],
+): Occurrence | null {
+  if (!a.anchorText || !a.lineRange || !a.columnRange) return null;
+  const line = a.lineRange[0];
+  let block: [number, number] | undefined;
+  for (const b of blocks) {
+    if (b[0] > line || b[1] < line) continue;
+    if (!block || b[1] - b[0] < block[1] - block[0]) block = b;
+  }
+  if (!block) return null;
+  const starts = lineStarts(source);
+  const start = starts[line - 1]! + a.columnRange[0] - 1;
+  const inBlock = candidateSpans(source, a.anchorText).filter(startsWithin(starts, block));
+  const index = inBlock.findIndex((span) => span[0] === start);
+  return index === -1 ? null : { index, total: inBlock.length };
 }
 
 export function reanchor(source: string, annotations: Annotation[]): Annotation[] {
@@ -105,8 +199,19 @@ export function reanchor(source: string, annotations: Annotation[]): Annotation[
       out.push(a);
       continue;
     }
-    const found = locate(source, a.anchorText, a.lineRange ?? undefined);
-    if (found) out.push({ ...a, lineRange: found, status: "open" as const });
+    const { columnRange, textBefore, textAfter, ...rest } = a;
+    const found = locate(source, a.anchorText, {
+      lineRange: a.lineRange ?? undefined,
+      columnRange,
+      textBefore,
+      textAfter,
+    });
+    if (found)
+      out.push({
+        ...rest,
+        ...(a.block ? { lineRange: found.lineRange } : found),
+        status: "open" as const,
+      });
     // A stale draft has no resume handle (drafts paint only through their doc
     // anchor), so it is deleted rather than kept invisible and immortal.
     else if (!a.draft) out.push({ ...a, status: "stale" as const });
