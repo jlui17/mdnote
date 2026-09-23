@@ -1,11 +1,13 @@
 ---
 name: browser-test
-description: Verify mdnote changes end to end by driving the real UI headlessly with agent-browser. Use whenever a change touches selection, popover, highlight, sidebar, SSE, or re-anchoring code and needs the manual poke CLAUDE.md asks for — open the page, drag-select text, annotate, edit the file, assert the result.
+description: Verify mdnote changes end to end by driving the real UI in a browser. agent-browser (headless) first, Claude in Chrome as the fallback when agent-browser is not installed or its binary is killed on launch. Use whenever a change touches selection, popover, highlight, sidebar, SSE, or re-anchoring code and needs the manual poke CLAUDE.md asks for: open the page, drag-select text, annotate, edit the file, assert the result.
 ---
 
 # Browser e2e testing for mdnote
 
 Drives the real server + frontend with the `agent-browser` CLI (headless Chrome via CDP). Replaces the manual poke for selection/popover/highlight/SSE changes; `bun test` still covers everything else. Every recipe below was verified working.
+
+**Pick the driver first.** Run `agent-browser --version`. If it prints a version, use sections 2–7. If it is not installed (`command not found`, exit 127) or the binary is killed on launch (exit 137, which is what Santa in Lockdown mode does), fall back to Claude in Chrome: section 1 for the server, then section 8 in place of 2–7.
 
 ## 1. Start a server (no browser popup)
 
@@ -97,7 +99,7 @@ echo 'JSON.stringify([...CSS.highlights.keys()].map(k => [k, CSS.highlights.get(
 agent-browser screenshot out.png    # then Read the png
 ```
 
-Expected names: `mdnote-open`, `mdnote-stale`, `mdnote-pending`, `mdnote-draft`, `mdnote-focus`.
+Expected names: `mdnote-open-d0`..`d8` (one per nesting depth), `mdnote-stale`, `mdnote-pending`, `mdnote-draft`, `mdnote-focus`.
 
 ## 5. Test live edits / re-anchoring
 
@@ -113,7 +115,7 @@ Source-file changes push an `update` SSE event (full reload). Annotation CRUD th
 
 ## 6. Test keybindings and remaps
 
-Keys go through `agent-browser press`: `press c`, `press d`, `press shift+?` (modifiers join with `+`). Three checks a keybinding change needs:
+Keys go through `agent-browser press`: `press c`, `press shift+d`, `press shift+?` (modifiers join with `+`). Three checks a keybinding change needs:
 
 - **Remaps flow from settings.json.** Write a scratch config (the shape is action id → spec string, `null` unbinds; ids are the `ActionId`s in `src/actions.ts`) before starting the server — section 1's `XDG_CONFIG_HOME` export is what makes this safe and deterministic:
 
@@ -143,3 +145,66 @@ agent-browser close
 XDG_STATE_HOME=$SCRATCHPAD/state bun src/cli.ts stop
 rm -f "$F" "$F.mdnote.json"
 ```
+
+## 8. Fallback: Claude in Chrome
+
+Same flow as sections 2–7, driven with the `mcp__claude-in-chrome__*` tools. Invoke the `claude-in-chrome` skill, then load the tools in one ToolSearch: `tabs_context_mcp`, `tabs_create_mcp`, `tabs_close_mcp`, `navigate`, `computer`, `javascript_tool`, `read_page`, `find`, `read_console_messages`, `browser_batch`. Put every predictable sequence in one `browser_batch`.
+
+**This is the user's real Chrome.** Call `tabs_context_mcp`, then `tabs_create_mcp`, and work only in the tab id it returns. Never navigate, reuse, or close a tab you did not create. Never trigger a native `alert`/`confirm`/`prompt` (it blocks the extension); mdnote's delete and submit confirmations are in-page and safe. Close your tab with `tabs_close_mcp` when done.
+
+**Open and reload:** start the server as in section 1, then `navigate` to `http://127.0.0.1:<port>$F`. Reload is `navigate` to the same URL.
+
+**The tab is always hidden.** It lives in a parked offscreen window: `document.hidden` is true, `requestAnimationFrame` never fires by itself, and timers tick about once a second. A `computer` `screenshot` or `zoom` pumps a few frames (`scale: 0.1` keeps it cheap). Three rules follow:
+
+- After every `navigate`, take a screenshot before the first click or drag. Until the page has painted, Chrome delivers `mousemove` but drops `mousedown`/`mouseup`, so the gesture silently does nothing.
+- Effects lag: after a gesture, `computer` `wait` 1 before asserting highlights, popover, or sidebar.
+- The annotation hover preview is rAF-sampled: `hover` on the word, `screenshot`, `wait` 2, then assert `.popover`. Leaving works the same way. `.hover-bar` and the `c` key need no screenshot (a plain `mousemove` sets the hovered block).
+
+Do not call `resize_window`: it pumps no frames, and it changed the viewport-to-screenshot ratio for the next tab.
+
+**Coordinates are screenshot pixels, not CSS px.** The viewport is emulated and the ratio varies (seen: 2064 CSS px wide with a 1456 px frame, and 1216 with 1331). Every screenshot result prints its frame (`1456x838`, or `coordinate frame: 1456x838` when scaled). Multiply CSS px by `frame width / innerWidth`.
+
+`javascript_tool` returns the last expression (a top-level `return` and top-level `await` also work). Calls do not share `const`/`let` scope, so no IIFE is needed, but `window.*` survives until the next `navigate`. Define the helpers once per page load:
+
+```js
+window.SHOT_W = 1456;   // frame width from the latest screenshot result
+window.mdPt = (sel, idx, offset) => {   // computer-tool point at a text offset inside the idx-th `sel` block
+  const k = SHOT_W / innerWidth;
+  const w = document.createTreeWalker(document.querySelectorAll(sel)[idx], NodeFilter.SHOW_TEXT);
+  for (let n, pos = 0; (n = w.nextNode()); pos += n.length) {
+    if (offset > pos + n.length) continue;
+    const x = document.createRange(); x.setStart(n, offset - pos); x.setEnd(n, offset - pos);
+    const r = x.getBoundingClientRect();
+    return [Math.round(r.x * k), Math.round((r.y + r.height / 2) * k)];
+  }
+};
+window.mdHl = () => {   // every painted highlight as [block tag, start, end, text], offsets within the block's text
+  const off = (r) => {
+    const b = r.startContainer.parentElement.closest('[data-source-line]');
+    const pre = document.createRange(); pre.selectNodeContents(b); pre.setEnd(r.startContainer, r.startOffset);
+    const s = pre.toString().length;
+    return [b.tagName, s, s + r.toString().length, r.toString()];
+  };
+  return Object.fromEntries([...CSS.highlights].filter(([, h]) => h.size).map(([k, h]) => [k, [...h].map(off)]));
+};
+document.addEventListener('mousemove', (e) => (window.__at = [e.clientX, e.clientY]), true);
+JSON.stringify({from: mdPt('#doc p', 0, 23), to: mdPt('#doc p', 0, 26)})   // offsets count the block's rendered text, across inline nodes
+```
+
+Self-check the ratio once: `hover` at `[700, 400]`, then `window.__at` must equal `[700, 400]` divided by the ratio (within 1 px).
+
+**Drag-select:** `computer` `left_click_drag` with `start_coordinate: from`, `coordinate: to`. The page sees a trusted mousedown, three mousemoves, mouseup. Aiming at the exact glyph boundaries from `mdPt` selected a 3-character word every time; no inset needed. `getSelection()` is empty afterwards here too (the form takes focus and collapses it). After `wait` 1, `mdHl()` returns `{"mdnote-pending":[["P",23,26,"she"]]}`.
+
+**Block gestures:** `left_click` at a point inside the block's text opens the form with `.block-pending`. Or `hover` there and `key` `c`.
+
+**Annotate:** the textarea is focused once the form opens. Check `document.activeElement.tagName === 'TEXTAREA'` before `computer` `type`: if the gesture was dropped, every typed letter fires as a bare-key action instead. Save with `key` `cmd+Enter`, or `find` "Add button in the note popover" and `left_click` its `ref`. `read_page` with `filter: "interactive"` is the `snapshot -i` equivalent.
+
+**Assert:** sidecar as in section 4. For highlights, `JSON.stringify(mdHl())`: saved notes are `mdnote-open-d0`..`d8` by nesting depth, a clicked one adds `mdnote-focus`. Screenshots do show highlights and block boxes; `zoom` with a `region` for a close look.
+
+**Live edit:** rewrite the file as in section 5, `wait` 1, then read the block's `textContent` and `mdHl()`. Set `window.__mark = 1` before the edit and check it after to prove the tab updated without reloading. Clicks work right after an SSE repaint (only `navigate` needs the screenshot), but recompute coordinates.
+
+**Keys:** `computer` `key` with `c`, `e`, `Escape`, `cmd+Enter`, `shift+?` (help is `.help-panel`), `shift+d` (opens the in-page delete confirmation; `key` `Enter` confirms).
+
+**Console:** `read_console_messages` only records from its first call. Call it once (`pattern: "."`) right after the first `navigate`, reload, run the flow, then read again. `console.error('probe')` from `javascript_tool` confirms it is recording.
+
+**Clean up:** `tabs_close_mcp` your tab, then stop the server and delete the scratch files as in section 7.
