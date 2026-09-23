@@ -6,6 +6,7 @@ import type {
   AnnotationsResponse,
   AnnotationStatus,
   DocResponse,
+  GeneralNoteSize,
   NewAnnotation,
   Occurrence,
   ResolvedConfig,
@@ -36,6 +37,7 @@ import {
   type SelectionAnchor,
 } from "./anchor-dom.ts";
 import { computeDepths, computeHeights } from "./depth.ts";
+import { clampGeneralNoteSize, resizeGeneralNote } from "./general-note-size.ts";
 import { HelpDialog } from "./help.tsx";
 import { createHoverController, type HoverController } from "./hover.ts";
 
@@ -922,6 +924,7 @@ function App() {
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [toast, showToast] = useToast(2000);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [generalNoteOpen, setGeneralNoteOpen] = useState(false);
 
   const docRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -976,7 +979,7 @@ function App() {
   const pinnedRef = useRef(false);
   pinnedRef.current = openAnn?.pinned ?? false;
   const formOpenRef = useRef(false);
-  formOpenRef.current = pending !== null;
+  formOpenRef.current = pending !== null || generalNoteOpen;
   const boxesRef = useRef(blockBoxes);
   boxesRef.current = blockBoxes;
 
@@ -1259,10 +1262,20 @@ function App() {
   );
   useActionDispatcher();
 
-  const submit = (body: NewAnnotation) => {
-    setPending(null);
-    window.getSelection()?.removeAllRanges();
-    void postAnnotation(body).then(refreshAnnotations);
+  // Same as a mousedown outside them: the composer never shares the screen with another form.
+  const openGeneralNote = () => {
+    cancelPending();
+    setOpenAnn(null);
+    setGeneralNoteOpen(true);
+  };
+  useAction("annotate-document", openGeneralNote);
+
+  const submitGeneralNote = (note: string) => {
+    setGeneralNoteOpen(false);
+    void postAnnotation({ lineRange: null, anchorText: null, note }).then(async (a) => {
+      await refreshAnnotations();
+      if (a) focusAnnotation(a.id);
+    });
   };
 
   const remove = (id: string) => {
@@ -1414,7 +1427,7 @@ function App() {
         onFocus={scrollTo}
         onDelete={setConfirmDeleteId}
         onEdit={edit}
-        onGlobal={(note) => submit({ lineRange: null, anchorText: null, note })}
+        onAddGeneralNote={openGeneralNote}
         onHoverEntry={setHoveredEntryId}
         editingId={editingEntryId}
         onEditingChange={setEditingEntryId}
@@ -1466,6 +1479,14 @@ function App() {
           onChange={onDraftInput}
           onPick={submitPending}
           onCancel={cancelPending}
+        />
+      )}
+      {generalNoteOpen && (
+        <GeneralNoteComposer
+          size={settings.generalNoteSize}
+          onResize={(generalNoteSize) => setSetting({ generalNoteSize })}
+          onSubmit={submitGeneralNote}
+          onCancel={() => setGeneralNoteOpen(false)}
         />
       )}
     </>
@@ -1535,7 +1556,7 @@ function Sidebar(props: {
   onFocus: (id: string) => void;
   onDelete: (id: string) => void;
   onEdit: (id: string, note: string) => void;
-  onGlobal: (note: string) => void;
+  onAddGeneralNote: () => void;
   onHoverEntry: (id: string | null) => void;
   editingId: string | null;
   onEditingChange: (id: string | null) => void;
@@ -1543,7 +1564,6 @@ function Sidebar(props: {
   onTheme: (theme: Theme) => void;
   readingLine: boolean;
 }) {
-  const [adding, setAdding] = useState(false);
   const { editingId, onEditingChange } = props;
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -1560,8 +1580,6 @@ function Sidebar(props: {
     el.addEventListener("animationend", () => el.classList.remove("flash"), { once: true });
   }, [props.focus]);
 
-  useAction("annotate-document", () => setAdding(true));
-
   const addKb = bindingFor("annotate-document");
   const helpKb = bindingFor("show-help");
   const readingLineKb = bindingFor("toggle-reading-line");
@@ -1571,21 +1589,6 @@ function Sidebar(props: {
     (a, b) => Number(a.status === "stale") - Number(b.status === "stale"),
   );
   const staleStart = entries.findIndex((a) => a.status === "stale");
-
-  const globalForm = adding && (
-    <div class="global-form">
-      <NoteForm
-        rows={3}
-        placeholder="Note about the whole document"
-        submitLabel="Add"
-        onSubmit={(note) => {
-          props.onGlobal(note);
-          setAdding(false);
-        }}
-        onCancel={() => setAdding(false)}
-      />
-    </div>
-  );
 
   return (
     <aside class="sidebar">
@@ -1624,13 +1627,10 @@ function Sidebar(props: {
       </div>
 
       <div class="sb-body">
-        {!adding && (
-          <button type="button" class="btn-primary add-global" onClick={() => setAdding(true)}>
-            + General note
-            {addKb && <kbd>{formatKeybinding(addKb)}</kbd>}
-          </button>
-        )}
-        {globalForm}
+        <button type="button" class="btn-primary add-global" onClick={props.onAddGeneralNote}>
+          + General note
+          {addKb && <kbd>{formatKeybinding(addKb)}</kbd>}
+        </button>
 
         <ul class="annotation-list" ref={listRef}>
         {props.annotations.length === 0 && (
@@ -1815,6 +1815,109 @@ function ConfirmSubmitDialog(props: {
         Don't ask again
       </label>
     </ConfirmDialog>
+  );
+}
+
+/** The doc-wide note form: no anchor to open beside, so it is a dialog, centered on the
+ *  window. It resizes from its right and bottom edges and their corner; settings.json
+ *  `generalNoteSize` remembers the size, written once when a drag ends. */
+function GeneralNoteComposer(props: {
+  size: GeneralNoteSize | undefined;
+  onResize: (size: GeneralNoteSize) => void;
+  onSubmit: (note: string) => void;
+  onCancel: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [dragSize, setDragSize] = useState<GeneralNoteSize | null>(null);
+  // `size` is the latest applied one, null until the pointer moves: a bare click saves nothing.
+  const dragRef = useRef<{
+    x: number;
+    y: number;
+    start: GeneralNoteSize;
+    size: GeneralNoteSize | null;
+  } | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") props.onCancel();
+    };
+    // Mousedown, not click: a resize handle sits inside the panel, so a drag that starts on
+    // one never counts, wherever it ends.
+    const onMouseDown = (e: MouseEvent) => {
+      if (!panelRef.current?.contains(e.target as Node)) props.onCancel();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onMouseDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onMouseDown);
+    };
+  }, [props.onCancel]);
+
+  const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
+
+  const endDrag = () => {
+    const size = dragRef.current?.size;
+    dragRef.current = null;
+    setDragSize(null);
+    if (size) props.onResize(size);
+  };
+
+  const handle = (edge: "right" | "bottom" | "corner") => (
+    <div
+      class={`general-note-resize ${edge}`}
+      // Keeps the textarea's focus and starts no text selection.
+      onMouseDown={(e) => e.preventDefault()}
+      onPointerDown={(e) => {
+        const panel = panelRef.current;
+        if (!panel) return;
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        const { width, height } = panel.getBoundingClientRect();
+        dragRef.current = { x: e.clientX, y: e.clientY, start: { width, height }, size: null };
+      }}
+      onPointerMove={(e) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        drag.size = resizeGeneralNote(
+          drag.start,
+          edge === "bottom" ? 0 : e.clientX - drag.x,
+          edge === "right" ? 0 : e.clientY - drag.y,
+          viewport(),
+        );
+        setDragSize(drag.size);
+      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    />
+  );
+
+  // Clamped here as well as in the drag: a size saved on a big screen can load on a small
+  // one. Only a drag writes, so the saved size comes back on the big screen.
+  const size = dragSize ?? (props.size ? clampGeneralNoteSize(props.size, viewport()) : null);
+
+  return (
+    <div class="help-scrim">
+      <div
+        class="confirm-panel general-note-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="General note"
+        ref={panelRef}
+        style={size ? { width: `${size.width}px`, height: `${size.height}px` } : undefined}
+      >
+        <p class="general-note-label">General note</p>
+        <NoteForm
+          rows={3}
+          placeholder="Note about the whole document"
+          submitLabel="Add"
+          onSubmit={props.onSubmit}
+          onCancel={props.onCancel}
+        />
+        {handle("right")}
+        {handle("bottom")}
+        {handle("corner")}
+      </div>
+    </div>
   );
 }
 

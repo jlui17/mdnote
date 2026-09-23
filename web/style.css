@@ -620,10 +620,6 @@ button kbd {
   margin-top: 0.4rem;
 }
 
-.global-form {
-  margin-bottom: 1rem;
-}
-
 .annotation-list {
   list-style: none;
   margin: 0;
@@ -817,6 +813,86 @@ button kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: 0.7;
+}
+
+/* The general note composer wears .confirm-panel's look; its size comes inline once it
+   has been resized. The max keeps it inside the scrim when the window shrinks under it. */
+.general-note-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.general-note-label {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.general-note-panel form {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The panel's handles are the one way to resize, so the native grip is off. */
+.general-note-panel textarea {
+  flex: 1 1 auto;
+  min-height: 0;
+  resize: none;
+}
+
+/* Invisible grab strips straddling the panel's right and bottom edges. */
+.general-note-resize {
+  position: absolute;
+  touch-action: none;
+}
+
+.general-note-resize.right {
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.general-note-resize.bottom {
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.general-note-resize.corner {
+  right: -4px;
+  bottom: -4px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+}
+
+/* The one visible hint that the panel resizes: a diagonal grip drawn just inside the
+   corner the handle straddles. */
+.general-note-resize.corner::after {
+  content: "";
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 9px;
+  height: 9px;
+  background: linear-gradient(
+    135deg,
+    transparent 0 50%,
+    var(--muted) 50% 60%,
+    transparent 60% 70%,
+    var(--muted) 70% 80%,
+    transparent 80% 90%,
+    var(--muted) 90%
+  );
 }
 
 .help-panel {

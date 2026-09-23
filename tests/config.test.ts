@@ -80,6 +80,20 @@ test("readingLine defaults off, parses booleans, drops anything else", () => {
   expect(loadConfig(path).readingLine).toBe(false);
 });
 
+test("generalNoteSize is absent by default, rounds to whole pixels, drops anything malformed", () => {
+  const path = setup();
+  expect(loadConfig(path).generalNoteSize).toBeUndefined();
+  writeFileSync(path, JSON.stringify({ generalNoteSize: { width: 480.4, height: 300.5, extra: 1 } }));
+  expect(loadConfig(path).generalNoteSize).toEqual({ width: 480, height: 301 });
+  for (const bad of [{ width: 480 }, { width: "480", height: 300 }, { width: 0.2, height: 300 }, { width: -480, height: 300 }, [480, 300], "480x300", null]) {
+    writeFileSync(path, JSON.stringify({ theme: "light", readingLine: true, generalNoteSize: bad }));
+    const cfg = loadConfig(path);
+    expect(cfg.generalNoteSize, JSON.stringify(bad)).toBeUndefined();
+    expect(cfg.theme, JSON.stringify(bad)).toBe("light");
+    expect(cfg.readingLine, JSON.stringify(bad)).toBe(true);
+  }
+});
+
 test("updateSettings creates the file and its directory, writing just the patch", () => {
   const path = join(setup(), "..", "nested", "settings.json");
   const cfg = updateSettings({ theme: "nord", readingLine: true }, path);
@@ -100,10 +114,33 @@ test("updateSettings keeps every other key verbatim, keybindings and unknown one
   expect(loadConfig(path).keybindings["annotate-block"]).toBe("x");
 });
 
+test("updateSettings writes generalNoteSize in whole pixels and keeps every other key", () => {
+  const path = setup(JSON.stringify({ theme: "light", keybindings: { "annotate-block": "x" }, future: 1 }));
+  const cfg = updateSettings({ generalNoteSize: { width: 520.6, height: 340 } }, path);
+  expect(cfg.generalNoteSize).toEqual({ width: 521, height: 340 });
+  expect(cfg.theme).toBe("light");
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+    theme: "light",
+    keybindings: { "annotate-block": "x" },
+    future: 1,
+    generalNoteSize: { width: 521, height: 340 },
+  });
+});
+
 test("updateSettings rejects bad values and non-UI keys without touching the file", () => {
   const before = JSON.stringify({ theme: "light" });
   const path = setup(before);
-  for (const patch of [{ theme: "solarized" }, { readingLine: "yes" }, { lineNumbers: true }, [], null, "x"]) {
+  for (const patch of [
+    { theme: "solarized" },
+    { readingLine: "yes" },
+    { generalNoteSize: { width: 480 } },
+    { generalNoteSize: { width: 480, height: -1 } },
+    { generalNoteSize: null },
+    { lineNumbers: true },
+    [],
+    null,
+    "x",
+  ]) {
     let err: unknown;
     try {
       updateSettings(patch, path);

@@ -5,18 +5,26 @@ export type { Theme };
 
 export type AnnotationStatus = "open" | "stale";
 
+/** The general note composer's panel size, in whole CSS pixels. */
+export interface GeneralNoteSize {
+  width: number;
+  height: number;
+}
+
 /** Settings merged over app defaults; the server injects this into index.html as window.__MDNOTE_CONFIG__. */
 export interface ResolvedConfig {
   theme: Theme;
   lineNumbers: boolean;
   /** A band one text line tall behind the line under the pointer: the reading ruler. */
   readingLine: boolean;
+  /** Absent until the composer is first resized: it opens at its default size. */
+  generalNoteSize?: GeneralNoteSize;
   /** Full map, one entry per action; null means unbound. */
   keybindings: Record<ActionId, string | null>;
 }
 
 /** Body of PATCH /api/settings: the keys the UI writes back to settings.json. */
-export type SettingsPatch = Partial<Pick<ResolvedConfig, "theme" | "readingLine">>;
+export type SettingsPatch = Partial<Pick<ResolvedConfig, "theme" | "readingLine" | "generalNoteSize">>;
 
 /** Contents of the global lock naming the running server. */
 export interface ServerLock {

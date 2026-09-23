@@ -711,9 +711,28 @@ describe("settings", () => {
     });
   });
 
+  test("PATCH accepts generalNoteSize beside the keys already there", async () => {
+    await withConfigHome(async (settingsFile) => {
+      expect((await patch({ theme: "nord" })).status).toBe(200);
+      const res = await patch({ generalNoteSize: { width: 520, height: 340 } });
+      expect(res.status).toBe(200);
+      const cfg = (await res.json()) as { theme: string; generalNoteSize?: unknown };
+      expect(cfg.generalNoteSize).toEqual({ width: 520, height: 340 });
+      expect(cfg.theme).toBe("nord");
+      expect(JSON.parse(readFileSync(settingsFile, "utf8"))).toEqual({
+        theme: "nord",
+        generalNoteSize: { width: 520, height: 340 },
+      });
+      expect(await (await fetch(base + pathToUrl(file))).text()).toContain(
+        '"generalNoteSize":{"width":520,"height":340}',
+      );
+    });
+  });
+
   test("PATCH rejects what the UI may not write and leaves no file behind", async () => {
     await withConfigHome(async (settingsFile) => {
       expect((await patch({ lineNumbers: true })).status).toBe(400);
+      expect((await patch({ generalNoteSize: { width: "520", height: 340 } })).status).toBe(400);
       expect((await patch({ theme: "solarized" })).status).toBe(400);
       expect((await patch("nope")).status).toBe(400);
       expect(existsSync(settingsFile)).toBe(false);

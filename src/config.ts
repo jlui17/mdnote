@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ACTIONS, defaultKeybindings, isValidKeybinding, type ActionId } from "./actions.ts";
 import { isTheme, THEMES } from "./themes.ts";
-import type { ResolvedConfig, SettingsPatch } from "./types.ts";
+import type { GeneralNoteSize, ResolvedConfig, SettingsPatch } from "./types.ts";
 
 export function settingsPath(): string {
   const base = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
@@ -15,6 +15,19 @@ function warn(msg: string) {
 }
 
 const THEME_LIST = THEMES.map((t) => JSON.stringify(t)).join(", ");
+
+const GENERAL_NOTE_SIZE_SHAPE = "{ width, height } in pixels, both positive numbers";
+
+/** Rounds to whole pixels; null unless both sides are finite and still positive after rounding. */
+function parseGeneralNoteSize(value: unknown): GeneralNoteSize | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { width, height } = value as Record<string, unknown>;
+  if (typeof width !== "number" || typeof height !== "number") return null;
+  const size = { width: Math.round(width), height: Math.round(height) };
+  return Number.isFinite(width) && Number.isFinite(height) && size.width > 0 && size.height > 0
+    ? size
+    : null;
+}
 
 /** Reads settings.json and merges it over app defaults. Missing file is fine; invalid entries warn and fall back per-key. */
 export function loadConfig(path = settingsPath()): ResolvedConfig {
@@ -63,6 +76,15 @@ export function loadConfig(path = settingsPath()): ResolvedConfig {
     }
   }
 
+  if (s.generalNoteSize !== undefined) {
+    const size = parseGeneralNoteSize(s.generalNoteSize);
+    if (size) {
+      resolved.generalNoteSize = size;
+    } else {
+      warn(`ignoring generalNoteSize ${JSON.stringify(s.generalNoteSize)}: expected ${GENERAL_NOTE_SIZE_SHAPE}`);
+    }
+  }
+
   if (s.keybindings !== undefined) {
     if (typeof s.keybindings !== "object" || s.keybindings === null || Array.isArray(s.keybindings)) {
       warn(`ignoring keybindings: expected an object of action → keybinding`);
@@ -101,7 +123,7 @@ export class SettingsError extends Error {
 /**
  * Writes `patch` into settings.json (created, directory included, if absent), keeps every
  * other key verbatim, and returns the config as loadConfig now sees it. Only the keys the
- * UI toggles are accepted; a hand-broken file is refused rather than replaced.
+ * UI writes are accepted; a hand-broken file is refused rather than replaced.
  */
 export function updateSettings(patch: unknown, path = settingsPath()): ResolvedConfig {
   if (typeof patch !== "object" || patch === null || Array.isArray(patch)) {
@@ -115,6 +137,10 @@ export function updateSettings(patch: unknown, path = settingsPath()): ResolvedC
     } else if (key === "readingLine") {
       if (typeof value !== "boolean") throw new SettingsError("readingLine must be true or false", 400);
       accepted.readingLine = value;
+    } else if (key === "generalNoteSize") {
+      const size = parseGeneralNoteSize(value);
+      if (!size) throw new SettingsError(`generalNoteSize must be ${GENERAL_NOTE_SIZE_SHAPE}`, 400);
+      accepted.generalNoteSize = size;
     } else {
       throw new SettingsError(`${JSON.stringify(key)} is not a setting the UI can write`, 400);
     }
